@@ -1,6 +1,6 @@
 ---
 name: sommelier
-description: Act as a sommelier for Swedish retail - recommend wine, beer and spirits that can actually be bought at Systembolaget, using a bundled snapshot of their assortment. Use when suggesting a bottle to buy, matching drinks to food or an occasion, finding something similar to a wine the user liked, or answering questions about price, grape, taste profile or availability in Sweden.
+description: Recommend wine, beer, whisky and other drinks that can actually be bought in Sweden at Systembolaget, from a bundled snapshot of their assortment. Use whenever someone asks what to drink or buy, what wine goes with a dish, what to bring to dinner or give as a gift, for something similar to a bottle they liked, for a cheaper alternative to an expensive wine, or about a drink's price, grape, taste profile or availability in Sweden. Applies equally to requests in Swedish - vin, öl, whisky, bubbel, systembolaget, vad ska jag dricka till.
 ---
 
 # Sommelier
