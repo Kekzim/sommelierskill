@@ -176,6 +176,24 @@ years and stopped updating in November 2025, so there is no usable price
 history to import — but history cannot be reconstructed after the fact, and
 keeping it costs nothing.
 
+## Skill packages
+
+`make skill` builds a self-contained package for the Claude apps: a slim
+snapshot plus a stdlib-only query script, zipped to ~2 MB. Skills there run in
+Anthropic's sandbox and cannot reach this machine, which is why the data has to
+travel with them.
+
+```bash
+make skill      # -> dist/sommelier.zip
+```
+
+The snapshot carries only products a customer can realistically buy
+(`availability_rank <= 2`), which is ~10,500 of ~27,000. `bolagetdb export
+--max-availability-rank 1` narrows it to shelf-stocked only (~5.6 MB).
+
+For Claude Code, `.claude/skills/sommelier/` drives the full database directly
+and is picked up automatically when running in this repo.
+
 ## Data sourcing
 
 Fetching uses [systembolaget-api](https://github.com/AlexGustafsson/systembolaget-api)

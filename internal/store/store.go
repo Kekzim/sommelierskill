@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -322,4 +324,123 @@ func (d *DB) Stats(ctx context.Context, w io.Writer) error {
 		fmt.Fprintf(tw, "%s\t%d\t%d\t%d\n", cat.String, n, stocked, orderOnly)
 	}
 	return rows.Err()
+}
+
+// exportSchema is the shape of the portable snapshot. Column names match the
+// main product table so SQL written against one works against the other.
+const exportSchema = `
+CREATE TABLE product (
+  product_id TEXT PRIMARY KEY, full_name TEXT, name TEXT, name_thin TEXT,
+  producer TEXT, country TEXT, origin1 TEXT,
+  cat1 TEXT, cat2 TEXT, cat3 TEXT,
+  vintage INTEGER, price REAL, volume_ml REAL, abv REAL, sek_per_litre REAL,
+  availability TEXT, availability_rank INTEGER,
+  is_organic INTEGER, is_vegan INTEGER, is_natural INTEGER,
+  is_gluten_free INTEGER, is_kosher INTEGER,
+  clock_body INTEGER, clock_tannin INTEGER, clock_sweetness INTEGER,
+  clock_bitter INTEGER, clock_fruitacid INTEGER, clock_smokiness INTEGER,
+  packaging TEXT, taste TEXT, color TEXT, usage TEXT
+);
+CREATE TABLE product_grape (product_id TEXT, grape TEXT, raw_name TEXT);
+CREATE TABLE product_pairing (product_id TEXT, pairing TEXT);
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE INDEX idx_x_cat ON product(cat1, cat2);
+CREATE INDEX idx_x_avail ON product(availability_rank, price);
+CREATE INDEX idx_x_grape ON product_grape(grape);
+CREATE INDEX idx_x_pairing ON product_pairing(pairing);
+`
+
+// ExportSlim writes a portable snapshot containing only products a customer can
+// realistically buy, without the verbatim raw JSON.
+//
+// The full database is ~115MB, which is far too large to travel with a skill.
+// Dropping order-only products (which also mostly lack tasting notes) and the
+// raw column brings it to a few MB.
+func (d *DB) ExportSlim(ctx context.Context, path string, maxRank int) (int, error) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return 0, err
+	}
+
+	if _, err := d.db.ExecContext(ctx, `ATTACH DATABASE ? AS slim`, path); err != nil {
+		return 0, fmt.Errorf("attaching %s: %w", path, err)
+	}
+	defer d.db.ExecContext(ctx, `DETACH DATABASE slim`)
+
+	for _, stmt := range strings.Split(exportSchema, ";") {
+		if strings.TrimSpace(stmt) == "" {
+			continue
+		}
+		// Every object must be created in the attached database, not the main
+		// one. Missing a keyword here silently pollutes the source database.
+		stmt = strings.Replace(stmt, "CREATE TABLE ", "CREATE TABLE slim.", 1)
+		stmt = strings.Replace(stmt, "CREATE INDEX ", "CREATE INDEX slim.", 1)
+		if _, err := d.db.ExecContext(ctx, stmt); err != nil {
+			return 0, fmt.Errorf("export schema: %w", err)
+		}
+	}
+
+	copies := []string{
+		`INSERT INTO slim.product SELECT product_id, full_name, name, name_thin,
+		   producer, country, origin1, cat1, cat2, cat3, vintage, price, volume_ml,
+		   abv, sek_per_litre, availability, availability_rank, is_organic, is_vegan,
+		   is_natural, is_gluten_free, is_kosher, clock_body, clock_tannin,
+		   clock_sweetness, clock_bitter, clock_fruitacid, clock_smokiness,
+		   packaging, taste, color, usage
+		 FROM main.product WHERE availability_rank <= ? AND is_discontinued = 0`,
+		`INSERT INTO slim.product_grape SELECT g.* FROM main.product_grape g
+		 JOIN slim.product p ON p.product_id = g.product_id`,
+		`INSERT INTO slim.product_pairing SELECT r.* FROM main.product_pairing r
+		 JOIN slim.product p ON p.product_id = r.product_id`,
+	}
+	for i, q := range copies {
+		var err error
+		if i == 0 {
+			_, err = d.db.ExecContext(ctx, q, maxRank)
+		} else {
+			_, err = d.db.ExecContext(ctx, q)
+		}
+		if err != nil {
+			return 0, fmt.Errorf("export copy %d: %w", i, err)
+		}
+	}
+
+	// Full-text over the descriptive fields is the whole point of the snapshot,
+	// so build it here rather than hoping the consumer can. External content
+	// indexes the product table in place instead of storing a second copy of
+	// every tasting note, which matters when the file has to travel.
+	if _, err := d.db.ExecContext(ctx, `CREATE VIRTUAL TABLE slim.product_fts USING fts5(
+		full_name, producer, taste, color, usage,
+		content='product', content_rowid='rowid',
+		tokenize='unicode61 remove_diacritics 2')`); err != nil {
+		return 0, fmt.Errorf("export fts: %w", err)
+	}
+	if _, err := d.db.ExecContext(ctx, `INSERT INTO slim.product_fts(product_fts) VALUES ('rebuild')`); err != nil {
+		return 0, fmt.Errorf("populate fts: %w", err)
+	}
+	if _, err := d.db.ExecContext(ctx, `INSERT INTO slim.product_fts(product_fts) VALUES ('optimize')`); err != nil {
+		return 0, fmt.Errorf("optimize fts: %w", err)
+	}
+
+	var n int
+	d.db.QueryRowContext(ctx, `SELECT count(*) FROM slim.product`).Scan(&n)
+
+	// ATTACH does not compact, and the file has to travel.
+	if _, err := d.db.ExecContext(ctx, `VACUUM slim`); err != nil {
+		return n, fmt.Errorf("vacuuming snapshot: %w", err)
+	}
+
+	// Record provenance so the consumer can tell how stale the snapshot is.
+	var lastSync sql.NullString
+	d.db.QueryRowContext(ctx, `SELECT max(finished_at) FROM sync_run WHERE finished_at IS NOT NULL`).Scan(&lastSync)
+	for k, v := range map[string]string{
+		"exported_at":    time.Now().UTC().Format(time.RFC3339),
+		"source_sync":    lastSync.String,
+		"products":       fmt.Sprint(n),
+		"max_avail_rank": fmt.Sprint(maxRank),
+	} {
+		if _, err := d.db.ExecContext(ctx, `INSERT INTO slim.meta (key, value) VALUES (?,?)`, k, v); err != nil {
+			return n, err
+		}
+	}
+	return n, nil
 }

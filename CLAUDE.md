@@ -124,8 +124,22 @@ allowlists it. Any similar helper must do the same.
 **Keep `--page-delay` non-zero.** This is an undocumented API and an agent will
 otherwise hit it far harder than any human browsing session.
 
-## Agent-facing skill
+## Agent-facing skills
 
-`.claude/skills/sommelier/SKILL.md` teaches the schema, the availability
-discipline and the live stock check. Update it whenever the schema changes —
-it is how the sommelier agent understands this database.
+There are two, targeting different runtimes. Keep both in step when the schema
+changes.
+
+`.claude/skills/sommelier/SKILL.md` — **Claude Code**. Drives the full local
+database through `bolagetdb query`, and does live stock checks against the
+Systembolaget API. Only active when Claude Code runs with this repo as cwd.
+
+`dist/sommelier/` — **the Claude apps** (claude.ai / desktop), built by
+`make skill`. Skills there run in Anthropic's sandbox and cannot reach this
+machine, so the package bundles a slim snapshot (`bolagetdb export`, ~7.4 MB,
+2.0 MB zipped) plus a stdlib-only `query.py`. `dist/` is gitignored; the zip is
+rebuilt from the database.
+
+The snapshot holds only `availability_rank <= 2` — the ~10,500 products a
+customer can realistically buy, out of ~27,000. That keeps it small, but means
+absence from the snapshot does not imply absence from Systembolaget, and the
+app-side skill says so explicitly.

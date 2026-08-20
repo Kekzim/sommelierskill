@@ -27,3 +27,11 @@ vet:
 
 clean:
 	rm -f $(BINARY) $(DB) $(DB)-wal $(DB)-shm
+
+# Portable skill package for the Claude apps (claude.ai / desktop).
+# The local .claude/skills/sommelier skill targets Claude Code and drives the
+# full database; this one bundles a slim snapshot and runs anywhere.
+skill: build
+	./$(BINARY) export
+	cd dist && rm -f sommelier.zip && zip -qr sommelier.zip sommelier
+	@ls -lh dist/sommelier.zip | awk '{print "packaged:", $$5, $$9}'

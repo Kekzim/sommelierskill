@@ -97,6 +97,23 @@ func main() {
 				},
 			},
 			{
+				Name:   "export",
+				Usage:  "Write a portable slim snapshot for bundling with a skill",
+				Action: actionExport,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "output",
+						Usage: "Destination file",
+						Value: "dist/sommelier/data/bolaget-slim.db",
+					},
+					&cli.IntFlag{
+						Name:  "max-availability-rank",
+						Usage: "1 = shelf-stocked only, 2 = also limited, 3 = everything including order-only",
+						Value: 2,
+					},
+				},
+			},
+			{
 				Name:   "stats",
 				Usage:  "Summarise what is in the database and how fresh it is",
 				Action: actionStats,
@@ -486,4 +503,32 @@ func syncProducts(
 	}
 	log.Info("products stored", slog.Int("count", fetched), slog.Int("failedSlices", failures))
 	return fetched, failures, incomplete, nil
+}
+
+func actionExport(ctx context.Context, cmd *cli.Command) error {
+	log := logger(cmd)
+	db, err := store.Open(cmd.String("db"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	out := cmd.String("output")
+	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+		return err
+	}
+
+	n, err := db.ExportSlim(ctx, out, cmd.Int("max-availability-rank"))
+	if err != nil {
+		return err
+	}
+
+	info, err := os.Stat(out)
+	if err != nil {
+		return err
+	}
+	log.Info("snapshot exported",
+		slog.String("path", out), slog.Int("products", n),
+		slog.String("size", fmt.Sprintf("%.1f MB", float64(info.Size())/(1<<20))))
+	return nil
 }
