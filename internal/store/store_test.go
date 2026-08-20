@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -235,5 +236,17 @@ func TestAbsentTextIsNull(t *testing.T) {
 	db.SQL().QueryRow(`SELECT count(*) FROM product WHERE taste IS NOT NULL`).Scan(&withTaste)
 	if withTaste != 0 {
 		t.Errorf("taste IS NOT NULL matched %d rows, want 0", withTaste)
+	}
+}
+
+// A wrong --db path must fail, not silently produce an empty database that
+// reads as an empty assortment.
+func TestOpenExistingRejectsMissing(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nope.db")
+	if _, err := OpenExisting(missing); err == nil {
+		t.Fatal("OpenExisting succeeded on a missing file; a bad path must fail loudly")
+	}
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		t.Error("OpenExisting created the file it was meant to reject")
 	}
 }

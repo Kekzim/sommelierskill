@@ -317,7 +317,7 @@ func actionQuery(ctx context.Context, cmd *cli.Command) error {
 	if sql == "" {
 		return fmt.Errorf("no SQL given")
 	}
-	db, err := store.Open(cmd.String("db"))
+	db, err := store.OpenExisting(cmd.String("db"))
 	if err != nil {
 		return err
 	}
@@ -384,7 +384,7 @@ func actionQuery(ctx context.Context, cmd *cli.Command) error {
 }
 
 func actionStats(ctx context.Context, cmd *cli.Command) error {
-	db, err := store.Open(cmd.String("db"))
+	db, err := store.OpenExisting(cmd.String("db"))
 	if err != nil {
 		return err
 	}
@@ -507,7 +507,7 @@ func syncProducts(
 
 func actionExport(ctx context.Context, cmd *cli.Command) error {
 	log := logger(cmd)
-	db, err := store.Open(cmd.String("db"))
+	db, err := store.OpenExisting(cmd.String("db"))
 	if err != nil {
 		return err
 	}

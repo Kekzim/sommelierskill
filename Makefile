@@ -35,3 +35,8 @@ skill: build
 	./$(BINARY) export
 	cd dist && rm -f sommelier.zip && zip -qr sommelier.zip sommelier
 	@ls -lh dist/sommelier.zip | awk '{print "packaged:", $$5, $$9}'
+
+# Install the binary so the Claude Code skill can call it from any directory.
+install: build
+	install -Dm755 $(BINARY) $(HOME)/.local/bin/$(BINARY)
+	@echo "installed -> $(HOME)/.local/bin/$(BINARY)"

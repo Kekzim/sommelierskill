@@ -23,6 +23,21 @@ var schemaSQL string
 
 type DB struct{ db *sql.DB }
 
+// OpenExisting opens a database that must already exist.
+//
+// Open would happily create an empty one, which makes a wrong --db path look
+// like an empty assortment: "0 products" instead of an error. Read commands
+// use this so a bad path fails loudly.
+func OpenExisting(path string) (*DB, error) {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("no database at %s; run `bolagetdb sync` first, or set --db / $BOLAGETDB", path)
+		}
+		return nil, err
+	}
+	return Open(path)
+}
+
 // Open opens (creating if needed) the database at path and applies the schema.
 func Open(path string) (*DB, error) {
 	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)")

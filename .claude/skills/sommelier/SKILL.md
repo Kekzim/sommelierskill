@@ -29,11 +29,18 @@ Default to `availability_rank = 1` unless the user asked for something rare.
 ## Running queries
 
 ```bash
-bolagetdb query --format json "SELECT ..."
+bolagetdb --db /home/ejonsvn/repos/tooling/bolagetdb/bolaget.db query --format json "SELECT ..."
+```
+
+Set `BOLAGETDB` once and the `--db` flag becomes unnecessary:
+
+```bash
+export BOLAGETDB=/home/ejonsvn/repos/tooling/bolagetdb/bolaget.db
 ```
 
 Use `--format json` for parsing, `--format table` when showing the user. No
-`sqlite3` binary is needed. Set `BOLAGETDB` to the database path, or pass `--db`.
+`sqlite3` binary is needed. If the database path is wrong the command fails
+with an error — it will never silently report an empty assortment.
 
 Check freshness before trusting the data:
 
