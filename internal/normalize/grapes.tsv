@@ -1,0 +1,64 @@
+# Grape synonym table: <name as the API writes it><TAB><canonical name>
+#
+# Edit freely -- this is a versioned domain artifact, not generated code.
+# Anything not listed here passes through with only case/whitespace tidied,
+# so an unknown grape is never dropped. product_grape.raw_name always keeps
+# the original, so a bad mapping here is recoverable.
+#
+# DELIBERATELY NOT MERGED (these look like synonyms but are distinct grapes):
+#   Petite sirah  != Syrah        (Petite sirah is Durif)
+#   Welschriesling!= Riesling     (unrelated)
+#   Pinotage      != Pinot noir   (Pinot noir x Cinsault cross)
+#   Cabernet franc!= Cabernet sauvignon
+#   Auxerrois     -- ambiguous (red Malbec syn. vs. a white grape), left alone
+
+# --- red ---
+Shiraz	Syrah
+Garnacha	Grenache
+Garnacha tinta	Grenache
+Grenache noir	Grenache
+Cannonau	Grenache
+Tinta roriz	Tempranillo
+Aragonez	Tempranillo
+Tinto fino	Tempranillo
+Tinta del pais	Tempranillo
+Ull de llebre	Tempranillo
+Spätburgunder	Pinot noir
+Blauburgunder	Pinot noir
+Pinot nero	Pinot noir
+Primitivo	Zinfandel
+Monastrell	Mourvèdre
+Mataro	Mourvèdre
+Mourvedre	Mourvèdre
+Mazuelo	Carignan
+Cariñena	Carignan
+Carignano	Carignan
+Samsó	Carignan
+Cot	Malbec
+Blauer zweigelt	Zweigelt
+Lemberger	Blaufränkisch
+Kékfrankos	Blaufränkisch
+Touriga nacional	Touriga naçional
+Carmenere	Carmenère
+Sangiovese grosso	Sangiovese
+Brunello	Sangiovese
+Prugnolo gentile	Sangiovese
+Morellino	Sangiovese
+Nielluccio	Sangiovese
+
+# --- white ---
+Pinot grigio	Pinot gris
+Grauburgunder	Pinot gris
+Ruländer	Pinot gris
+Weissburgunder	Pinot blanc
+Pinot bianco	Pinot blanc
+Fumé blanc	Sauvignon blanc
+Steen	Chenin blanc
+Trebbiano	Ugni blanc
+Alvarinho	Albariño
+Macabeo	Viura
+Garnacha blanca	Grenache blanc
+Grenache blanc	Grenache blanc
+Moscato	Muscat
+Moscatel	Muscat
+Muskateller	Muscat
