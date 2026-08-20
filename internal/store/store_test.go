@@ -205,3 +205,35 @@ func TestSetFlagClearsStale(t *testing.T) {
 		t.Errorf("is_vegan = %d/%d, want 0/1 after re-enrichment", one, two)
 	}
 }
+
+// Fields the API omitted must be stored as NULL, not "". Storing empty strings
+// makes `WHERE taste IS NOT NULL` match every row -- a wrong answer with no error.
+func TestAbsentTextIsNull(t *testing.T) {
+	p := sample()
+	p.Cat3 = ""
+	p.Taste = ""
+	p.EthicalLabel = ""
+	p.Producer = ""
+	p.NameThin = ""
+
+	db := openTemp(t)
+	put(t, db, p)
+
+	var nulls int
+	if err := db.SQL().QueryRow(`
+		SELECT (cat3 IS NULL) + (taste IS NULL) + (ethical_label IS NULL)
+		     + (producer IS NULL) + (name_thin IS NULL)
+		FROM product WHERE product_id='1'`).Scan(&nulls); err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if nulls != 5 {
+		t.Errorf("%d of 5 absent fields stored as NULL; the rest are empty strings", nulls)
+	}
+
+	// The common filtering idiom must actually discriminate.
+	var withTaste int
+	db.SQL().QueryRow(`SELECT count(*) FROM product WHERE taste IS NOT NULL`).Scan(&withTaste)
+	if withTaste != 0 {
+		t.Errorf("taste IS NOT NULL matched %d rows, want 0", withTaste)
+	}
+}

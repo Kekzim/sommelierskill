@@ -40,11 +40,11 @@ materialises them with separate enrichment passes, into `is_vegan`,
 
 Conveniently, data quality tracks availability almost exactly:
 
-| Assortment | has tasting notes |
-|---|---|
-| `Fast sortiment` (shelf) | 99.9% |
-| `Tillfälligt sortiment` | 37.7% |
-| `Ordervaror` (order-only) | 7.3% |
+| Availability tier | products | has tasting notes |
+|---|---|---|
+| `stocked` | 7,330 | 99.7% |
+| `limited` | 3,194 | 53.7% |
+| `order_only` | 16,651 | 11.9% |
 
 So the products you can actually buy are the ones described well enough to
 reason about.

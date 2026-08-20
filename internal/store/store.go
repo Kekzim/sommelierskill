@@ -106,18 +106,33 @@ func (d *DB) NewWriter() (*Writer, error) {
 	return w, nil
 }
 
+// nullIfEmpty maps an empty string to a SQL NULL.
+//
+// normalize returns "" for any field the API omitted, and storing that verbatim
+// makes `WHERE taste IS NOT NULL` match every row — a wrong answer with no
+// error. Optional text columns go through here so "absent" is representable.
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 func (w *Writer) Put(p normalize.Product) error {
 	ts := p.SyncedAt.UTC().Format(time.RFC3339)
 	if _, err := w.product.Exec(
-		p.ProductID, p.ProductNumber, p.Name, p.NameThin, p.FullName, p.Producer, p.Supplier,
-		p.Country, p.Origin1, p.Origin2, p.Cat1, p.Cat2, p.Cat3, p.CategoryTitle,
+		p.ProductID, nullIfEmpty(p.ProductNumber), p.Name, nullIfEmpty(p.NameThin),
+		p.FullName, nullIfEmpty(p.Producer), nullIfEmpty(p.Supplier),
+		nullIfEmpty(p.Country), nullIfEmpty(p.Origin1), nullIfEmpty(p.Origin2),
+		nullIfEmpty(p.Cat1), nullIfEmpty(p.Cat2), nullIfEmpty(p.Cat3), nullIfEmpty(p.CategoryTitle),
 		p.Vintage, p.Price, p.VolumeML, p.ABV, p.SugarPer100ML,
-		p.AssortmentText, p.Availability, p.AvailabilityRank, p.IsDiscontinued, p.IsOutOfStock,
-		p.IsOrganic, p.IsSustainable, p.IsEthical, p.EthicalLabel,
-		p.Packaging, p.Seal, p.CO2Impact,
+		nullIfEmpty(p.AssortmentText), p.Availability, p.AvailabilityRank, p.IsDiscontinued, p.IsOutOfStock,
+		p.IsOrganic, p.IsSustainable, p.IsEthical, nullIfEmpty(p.EthicalLabel),
+		nullIfEmpty(p.Packaging), nullIfEmpty(p.Seal), nullIfEmpty(p.CO2Impact),
 		p.ClockBody, p.ClockTannin, p.ClockSweetness, p.ClockBitter, p.ClockFruitacid,
-		p.ClockSmokiness, p.ClockCasque, p.CasqueText,
-		p.Taste, p.Color, p.Usage, p.LaunchDate, p.Raw, ts,
+		p.ClockSmokiness, p.ClockCasque, nullIfEmpty(p.CasqueText),
+		nullIfEmpty(p.Taste), nullIfEmpty(p.Color), nullIfEmpty(p.Usage),
+		nullIfEmpty(p.LaunchDate), p.Raw, ts,
 	); err != nil {
 		return fmt.Errorf("upsert product %s: %w", p.ProductID, err)
 	}

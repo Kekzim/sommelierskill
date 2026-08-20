@@ -81,12 +81,17 @@ false.
 Unknown assortment names deliberately default to `order_only` — overstating
 availability is the failure mode that misleads a recommendation.
 
-**Data quality tracks availability.** Tasting notes are present for 99.9% of
-shelf-stocked products but only 7.3% of order-only ones. An empty `taste`
-usually means "not stocked", not "no flavour".
+**Data quality tracks availability.** Tasting notes are present for 99.7% of
+`stocked` products, 53.7% of `limited` and 11.9% of `order_only`. A missing
+`taste` usually means "not stocked", not "no flavour".
 
-**`cat3` is NULL for ~76% of wine.** Filtering on it silently drops most of a
-category.
+**`cat3` is NULL for ~62% of wine** (~76% of red wine). Filtering on it
+silently drops most of a category.
+
+**Absent text is stored as NULL, not `""`.** `normalize` returns `""` for any
+omitted field; `store.nullIfEmpty` converts those on the way in. Without it
+`WHERE taste IS NOT NULL` matches every row — a wrong answer with no error.
+Route new optional text columns through it (see `TestAbsentTextIsNull`).
 
 **Stock is never mirrored.** Product facts change slowly and are cached; shelf
 stock changes hourly and must be read live from

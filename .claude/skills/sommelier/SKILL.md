@@ -46,7 +46,7 @@ bolagetdb stats
 `product` — one row per product.
 
 - Identity: `product_id`, `product_number`, `name`, `name_thin`, `full_name`, `producer`, `country`, `origin1`, `origin2`
-- Category: `cat1` (Vin/Öl/Sprit/…), `cat2` (Rött vin/Ale/Whisky/…), `cat3` (style — **NULL for ~76% of wine, so never filter on it alone**)
+- Category: `cat1` (Vin/Öl/Sprit/…), `cat2` (Rött vin/Ale/Whisky/…), `cat3` (style — **NULL for ~62% of wine, so never filter on it alone**)
 - Numbers: `vintage`, `price`, `volume_ml`, `abv`, `sugar_g_per_100ml`
 - Derived: `sek_per_litre`, `sek_per_cl_alcohol` — use these for value comparisons, never raw `price` across different bottle sizes
 - Availability: `availability`, `availability_rank`, `assortment_text`, `is_discontinued`, `is_out_of_stock`
@@ -127,8 +127,9 @@ search for `Sassicaia` upstream returns `Grappa Sassicaia` and an unrelated
 
 ## Pitfalls
 
-- `cat3` is NULL for ~76% of wine. Filtering on it silently drops most of a category.
-- `taste` is populated for ~100% of shelf-stocked products but only ~7% of order-only ones. An empty `taste` usually means "not stocked", not "no flavour".
-- Compare value with `sek_per_litre`, not `price` — bottle sizes vary from 187 ml to 3 litres.
+- `cat3` (style) is NULL for ~62% of wine, and ~76% of red wine. Filtering on it silently drops most of a category.
+- `taste` is populated for 99.7% of `stocked` products, 54% of `limited` and only 12% of `order_only`. A missing `taste` usually means "not stocked", not "no flavour".
+- Absent text fields are stored as NULL, not `''`, so `taste IS NOT NULL` is a valid filter.
+- Compare value with `sek_per_litre`, not `price` — volumes range from 60 ml to 30 litres.
 - The same wine appears as separate rows per vintage and per bottle size. Group by name and producer when presenting.
-- `is_vegan` and friends are `NULL` if enrichment has not run. `NULL` means unknown, not false.
+- `is_vegan`, `is_natural`, `is_gluten_free` and `is_kosher` come from enrichment passes. After a normal sync they are 0 or 1; `NULL` would mean enrichment was skipped, i.e. unknown rather than false.
