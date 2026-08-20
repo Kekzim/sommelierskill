@@ -32,7 +32,13 @@ unchanged.
 **`product_fts`** — full-text over `full_name`, `producer`, `taste`, `color`,
 `usage`. Join on `rowid`. Diacritics folded, so `korsbar` matches `körsbär`.
 
-**`meta`** — snapshot provenance.
+**`store`** (`site_id`, `name`, `address`, `city`, `county`) and
+**`store_product`** (`site_id`, `product_id`) — the assortment of the stores
+that have been mirrored. Only some stores are covered; check
+`meta.stores_covered`. A product absent from `store_product` for a covered
+store means that store does not carry it.
+
+**`meta`** — snapshot provenance, including `stores_covered`.
 
 ## Recipes
 
@@ -102,6 +108,32 @@ WHERE p.product_id IN (SELECT product_id FROM product_grape WHERE grape = 'Caber
   AND p.availability_rank = 1 AND p.price < 300
 ORDER BY p.price LIMIT 10;
 ```
+
+### Does a specific store carry these?
+
+```sql
+SELECT p.full_name, p.price,
+       MAX(CASE WHEN sp.site_id = '1001' THEN 1 ELSE 0 END) AS wachtmeister,
+       MAX(CASE WHEN sp.site_id = '1002' THEN 1 ELSE 0 END) AS amiralen
+FROM product p
+LEFT JOIN store_product sp ON sp.product_id = p.product_id
+WHERE p.full_name IN ('Southern Ridge Shiraz Victoria', 'Dehesa La Granja')
+GROUP BY p.product_id;
+```
+
+Or filter a recommendation to one store from the start:
+
+```sql
+SELECT p.full_name, p.country, p.price
+FROM product p
+JOIN store_product sp USING (product_id)
+JOIN product_pairing pr USING (product_id)
+WHERE sp.site_id = '1001' AND pr.pairing = 'Vilt' AND p.availability_rank = 1
+ORDER BY p.clock_body DESC, p.price LIMIT 5;
+```
+
+List covered stores with
+`SELECT * FROM store` — anything not listed is simply not mirrored.
 
 ### Find a specific bottle
 

@@ -358,11 +358,14 @@ CREATE TABLE product (
 );
 CREATE TABLE product_grape (product_id TEXT, grape TEXT, raw_name TEXT);
 CREATE TABLE product_pairing (product_id TEXT, pairing TEXT);
+CREATE TABLE store (site_id TEXT PRIMARY KEY, name TEXT, address TEXT, city TEXT, county TEXT);
+CREATE TABLE store_product (site_id TEXT, product_id TEXT, PRIMARY KEY (site_id, product_id));
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE INDEX idx_x_cat ON product(cat1, cat2);
 CREATE INDEX idx_x_avail ON product(availability_rank, price);
 CREATE INDEX idx_x_grape ON product_grape(grape);
 CREATE INDEX idx_x_pairing ON product_pairing(pairing);
+CREATE INDEX idx_x_storeprod ON store_product(product_id);
 `
 
 // ExportSlim writes a portable snapshot containing only products a customer can
@@ -406,6 +409,13 @@ func (d *DB) ExportSlim(ctx context.Context, path string, maxRank int) (int, err
 		 JOIN slim.product p ON p.product_id = g.product_id`,
 		`INSERT INTO slim.product_pairing SELECT r.* FROM main.product_pairing r
 		 JOIN slim.product p ON p.product_id = r.product_id`,
+		// Only stores whose assortment has actually been mirrored. A store row
+		// without store_product rows would read as "carries nothing".
+		`INSERT INTO slim.store SELECT s.site_id, s.name, s.address, s.city, s.county
+		 FROM main.store s
+		 WHERE s.site_id IN (SELECT DISTINCT site_id FROM main.store_product)`,
+		`INSERT INTO slim.store_product SELECT sp.site_id, sp.product_id
+		 FROM main.store_product sp JOIN slim.product p ON p.product_id = sp.product_id`,
 	}
 	for i, q := range copies {
 		var err error
@@ -447,11 +457,16 @@ func (d *DB) ExportSlim(ctx context.Context, path string, maxRank int) (int, err
 	// Record provenance so the consumer can tell how stale the snapshot is.
 	var lastSync sql.NullString
 	d.db.QueryRowContext(ctx, `SELECT max(finished_at) FROM sync_run WHERE finished_at IS NOT NULL`).Scan(&lastSync)
+	var stores sql.NullString
+	d.db.QueryRowContext(ctx, `SELECT group_concat(site_id || ' ' || name, '; ')
+		FROM slim.store`).Scan(&stores)
+
 	for k, v := range map[string]string{
 		"exported_at":    time.Now().UTC().Format(time.RFC3339),
 		"source_sync":    lastSync.String,
 		"products":       fmt.Sprint(n),
 		"max_avail_rank": fmt.Sprint(maxRank),
+		"stores_covered": stores.String,
 	} {
 		if _, err := d.db.ExecContext(ctx, `INSERT INTO slim.meta (key, value) VALUES (?,?)`, k, v); err != nil {
 			return n, err

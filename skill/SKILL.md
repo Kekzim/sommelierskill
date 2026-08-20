@@ -20,6 +20,7 @@ ones that change the answer. In rough order of usefulness:
 
 - What is it for — a meal (what dish?), an occasion, a gift, or just drinking?
 - Roughly what budget?
+- Which shop they use, if a covered store makes the answer more useful
 - A drink they have enjoyed before, if any. This is the most informative single
   answer you can get.
 
@@ -60,8 +61,17 @@ a customer can readily buy, out of ~27,000. A wine that is missing may still be
 orderable. Say "not in the regular assortment" and offer to check
 systembolaget.se — never "not available in Sweden".
 
-**Shelf stock is not included.** This answers what exists nationally, never
-what is on the shelf in a particular shop today.
+**Distinguish "carried by a store" from "on the shelf today".** For the stores
+listed in `meta.stores_covered`, the snapshot knows which products that store
+carries — query `store_product`. That answers "does my local shop stock this
+at all", which is usually what people mean.
+
+It does **not** know today's shelf count. Say "Wachtmeister carries this"
+rather than "there is a bottle waiting for you", and point at systembolaget.se
+or the app for a live count.
+
+For any store *not* in `meta.stores_covered`, say the snapshot does not cover
+that shop rather than implying the wine is unavailable there.
 
 **Confirm identity before claiming a match.** Name search is unreliable in both
 directions — a search for `Sassicaia` surfaces `Grappa Sassicaia` and an

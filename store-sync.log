@@ -1,0 +1,5 @@
+time=2026-08-20T13:54:37.943+02:00 level=WARN msg="skipping the product fetch; only enrichment and store passes will run"
+time=2026-08-20T13:54:37.943+02:00 level=INFO msg="plan ready" slices=0 expectedProducts=0
+time=2026-08-20T13:55:38.315+02:00 level=INFO msg="store assortment stored" store=1001 products=1909
+time=2026-08-20T13:56:39.644+02:00 level=INFO msg="store assortment stored" store=1002 products=1998
+time=2026-08-20T13:56:40.282+02:00 level=INFO msg="sync complete" products=0 slices=0 errors=0 took=2m2.687037143s
