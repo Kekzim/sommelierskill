@@ -32,8 +32,12 @@ clean:
 # The local .claude/skills/sommelier skill targets Claude Code and drives the
 # full database; this one bundles a slim snapshot and runs anywhere.
 skill: build
-	./$(BINARY) export
+	rm -rf dist/sommelier
+	mkdir -p dist/sommelier
+	cp -r skill/. dist/sommelier/
+	./$(BINARY) export --output dist/sommelier/data/bolaget-slim.db
 	cd dist && rm -f sommelier.zip && zip -qr sommelier.zip sommelier
+	@echo "--- package ---" && find dist/sommelier -type f | sort
 	@ls -lh dist/sommelier.zip | awk '{print "packaged:", $$5, $$9}'
 
 # Install the binary so the Claude Code skill can call it from any directory.

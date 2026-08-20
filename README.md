@@ -178,10 +178,11 @@ keeping it costs nothing.
 
 ## Skill packages
 
-`make skill` builds a self-contained package for the Claude apps: a slim
-snapshot plus a stdlib-only query script, zipped to ~2 MB. Skills there run in
-Anthropic's sandbox and cannot reach this machine, which is why the data has to
-travel with them.
+`make skill` builds a self-contained sommelier package for the Claude apps from
+`skill/`: the persona and method, reference tables mapping ordinary language
+onto the schema, a stdlib-only query script, and a slim snapshot. ~2 MB zipped.
+Skills there run in Anthropic's sandbox and cannot reach this machine, which is
+why the data has to travel with them.
 
 ```bash
 make skill      # -> dist/sommelier.zip

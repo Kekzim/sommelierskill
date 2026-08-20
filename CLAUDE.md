@@ -133,11 +133,19 @@ changes.
 database through `bolagetdb query`, and does live stock checks against the
 Systembolaget API. Only active when Claude Code runs with this repo as cwd.
 
-`dist/sommelier/` — **the Claude apps** (claude.ai / desktop), built by
-`make skill`. Skills there run in Anthropic's sandbox and cannot reach this
-machine, so the package bundles a slim snapshot (`bolagetdb export`, ~7.4 MB,
-2.0 MB zipped) plus a stdlib-only `query.py`. `dist/` is gitignored; the zip is
-rebuilt from the database.
+`skill/` — **the Claude apps** (claude.ai / desktop). This is the source;
+`make skill` copies it into `dist/sommelier/`, adds the exported snapshot and
+zips it (~2.0 MB). `dist/` is gitignored — edit `skill/`, never `dist/`.
+
+  skill/SKILL.md                  persona, method, the rules that matter
+  skill/references/preferences.md ordinary language -> SQL (the domain artifact)
+  skill/references/schema.md      schema, query mechanics, tested recipes
+  skill/scripts/query.py          stdlib-only runner
+
+SKILL.md is loaded always; the references only when needed, so keep the method
+in SKILL.md and the lookup tables in references. `preferences.md` is the piece
+with real domain judgement in it — the taste-clock mappings, the Swedish
+flavour vocabulary, the "something like a Burgundy" translations.
 
 The snapshot holds only `availability_rank <= 2` — the ~10,500 products a
 customer can realistically buy, out of ~27,000. That keeps it small, but means
