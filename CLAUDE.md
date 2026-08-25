@@ -21,8 +21,18 @@ data, so every `query`, `stats` and `export` fails until it is built:
 ```bash
 make install                                        # -> ~/.local/bin/bolagetdb
 bolagetdb sync --store 0102 --store 1001 --store 1002
+bolagetdb stores                                    # store metadata, one API call
 make skill                                          # -> dist/sommelier.zip
 ```
+
+**`bolagetdb stores` with no arguments is a required step, not an optional
+one.** `sync --store` mirrors a store's *assortment* into `store_product`; the
+`store` table holding names and addresses is only written by the bare `stores`
+command. Skip it and `bolagetdb stats` reports `stores 0` while the assortments
+are demonstrably present, and worse, `export` copies store names into the
+snapshot — so the shipped skill knows site `1001` carries a wine but not that it
+is Wachtmeister. `--search` does *not* do this: it queries the API live and
+prints, writing nothing.
 
 The sync takes ~25 minutes. **Run it in a real terminal, not as a backgrounded
 command from a Claude Code session** — session teardown sends a signal that
@@ -187,10 +197,12 @@ Known open items, so a fresh session does not have to rediscover them:
   gives ~71, but that misses wines advertised as `qvevri`, `anfora` or
   `macererad`, and ~3,300 white wines carry no colour description at all
   (almost all order-only). Any answer needs its uncertainty stated.
-- **The two skills have diverged.** `skill/` has the sommelier persona and
-  method; `.claude/skills/sommelier/` is still the older data-access-only
-  version. The method is runtime-independent and could be shared; the
-  mechanics (local binary and live stock vs bundled snapshot) cannot.
+- **`export` duplicates the column list in two places.** `exportSchema` (the
+  snapshot's `CREATE TABLE`) and the `INSERT INTO slim.product SELECT ...` in
+  `ExportSlim` both spell out every column by hand. A column added to `product`
+  reaches the app skill only when both are updated, and nothing fails loudly if
+  they are not — the snapshot just quietly lacks the field. Verified by reading
+  the code, not yet a problem in practice.
 
 ## Related work
 
@@ -205,9 +217,47 @@ exists in that repo's working tree, uncommitted and unpushed.
 There are two, targeting different runtimes. Keep both in step when the schema
 changes.
 
-`.claude/skills/sommelier/SKILL.md` — **Claude Code**. Drives the full local
-database through `bolagetdb query`, and does live stock checks against the
-Systembolaget API. Only active when Claude Code runs with this repo as cwd.
+`skill-claude-code/` — **Claude Code**. Drives the full local database through
+`bolagetdb query`, and does live stock checks against the Systembolaget API.
+
+  skill-claude-code/SKILL.md                  persona, method, rules, tone
+  skill-claude-code/references/schema.md      full schema, live stock, recipes
+  skill-claude-code/references/preferences.md -> ../../skill/references/preferences.md
+
+It is installed **user-wide**, not per-project, by a symlink:
+
+```bash
+ln -s /home/kazzim/repos/sommelierskill/skill-claude-code ~/.claude/skills/sommelier
+```
+
+so it is active in every Claude Code session on that machine, not only when cwd
+is this repo. Nothing in it is repo-relative — `bolagetdb` resolves the database
+from `~/.local/share/bolagetdb/`, so working directory is irrelevant. It lives
+in the repo (and not directly in `~/.claude/skills/`) so it stays versioned.
+
+Do not put it back under `.claude/skills/` in this repo: it would then register
+twice in any session opened here, once as a project skill and once as a user
+skill.
+
+Both skills carry the **same** method, rules and tone — that part is
+runtime-independent and any change to one belongs in the other. What differs is
+only the mechanics: `bolagetdb query` over all ~27k products with a live stock
+check, versus `query.py` over the bundled ~10.5k snapshot.
+
+`references/preferences.md` is a **symlink** to `skill/references/preferences.md`,
+not a copy. It is pure domain judgement with no runtime coupling, so the two
+runtimes share one file and cannot drift. Copying it back is how they diverged
+the first time. `make skill` only reads `skill/`, so the symlink never reaches
+the package.
+
+The symlink is **relative and therefore depth-sensitive** — moving the skill
+directory silently breaks it, and a broken `preferences.md` does not fail
+loudly, it just drops the whole taste vocabulary. This already happened once
+when the skill moved out of `.claude/skills/`. After any move, check it:
+
+```bash
+readlink -f ~/.claude/skills/sommelier/references/preferences.md
+```
 
 `skill/` — **the Claude apps** (claude.ai / desktop). This is the source;
 `make skill` copies it into `dist/sommelier/`, adds the exported snapshot and

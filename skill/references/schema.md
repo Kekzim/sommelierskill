@@ -81,12 +81,20 @@ Confirm the reference wine is the one they meant before trusting the result.
 
 ### Food pairing
 
+**Pairings are assigned across every category, not just wine.** Without a
+category filter, `pairing = 'Lamm'` ordered by body returns a barrel-aged maple
+stout ahead of any wine. Constrain `cat1`/`cat2` to what they actually asked
+for.
+
 ```sql
 SELECT p.full_name, p.country, p.price, p.clock_body, p.clock_tannin
 FROM product p JOIN product_pairing pr USING (product_id)
-WHERE pr.pairing = 'Lamm' AND p.availability_rank = 1 AND p.price < 200
+WHERE pr.pairing = 'Lamm' AND p.cat2 = 'Rött vin'
+  AND p.availability_rank = 1 AND p.price < 200
 ORDER BY p.clock_body DESC, p.price LIMIT 5;
 ```
+
+Drop the `cat2` line deliberately when they are open to anything.
 
 ### Best value in a taste profile
 
