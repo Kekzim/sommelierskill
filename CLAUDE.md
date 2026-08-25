@@ -33,6 +33,11 @@ go test ./internal/store/ -run TestFTSBooleanSearch -v   # single test
 for a full sync. There is no `sqlite3` dependency — the driver is pure Go
 (`modernc.org/sqlite`), so `query` is the way in.
 
+`dbPath` resolves the database: `--db`/`$BOLAGETDB`, then `./bolaget.db` if it
+exists, then `~/.local/share/bolagetdb/bolaget.db`. Never hardcode a path in a
+skill or doc — the repo must clone cleanly onto another machine, and the
+database is not committed.
+
 ## Architecture
 
 Four packages, one direction of flow:

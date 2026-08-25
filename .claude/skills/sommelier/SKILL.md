@@ -29,18 +29,22 @@ Default to `availability_rank = 1` unless the user asked for something rare.
 ## Running queries
 
 ```bash
-bolagetdb --db /home/ejonsvn/repos/tooling/bolagetdb/bolaget.db query --format json "SELECT ..."
+bolagetdb query --format json "SELECT ..."
 ```
 
-Set `BOLAGETDB` once and the `--db` flag becomes unnecessary:
-
-```bash
-export BOLAGETDB=/home/ejonsvn/repos/tooling/bolagetdb/bolaget.db
-```
+The database is found automatically: `$BOLAGETDB` if set, else `./bolaget.db`
+when run inside the repo, else `~/.local/share/bolagetdb/bolaget.db`. Pass
+`--db` to override.
 
 Use `--format json` for parsing, `--format table` when showing the user. No
-`sqlite3` binary is needed. If the database path is wrong the command fails
-with an error — it will never silently report an empty assortment.
+`sqlite3` binary is needed. If no database is found the command fails with an
+error naming the path — it will never silently report an empty assortment.
+
+If it reports no database, the mirror has not been built on this machine yet:
+
+```bash
+cd <repo> && make install && bolagetdb sync
+```
 
 Check freshness before trusting the data:
 

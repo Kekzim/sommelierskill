@@ -34,8 +34,7 @@ func main() {
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "db",
-				Usage:   "Path to the SQLite database",
-				Value:   "bolaget.db",
+				Usage:   "Path to the SQLite database. Defaults to ./bolaget.db if present, else the user data dir",
 				Sources: cli.EnvVars("BOLAGETDB"),
 			},
 			&cli.BoolFlag{Name: "verbose", Usage: "Enable debug logs"},
@@ -133,6 +132,30 @@ func main() {
 	}
 }
 
+// dbPath resolves where the database lives, in order:
+//
+//	--db or $BOLAGETDB, then ./bolaget.db if it exists, then the user data dir.
+//
+// Resolving here rather than hardcoding a path means the skill can just say
+// "run bolagetdb query" and work on any machine.
+func dbPath(cmd *cli.Command) string {
+	if p := cmd.String("db"); p != "" {
+		return p
+	}
+	if _, err := os.Stat("bolaget.db"); err == nil {
+		return "bolaget.db"
+	}
+	dir := os.Getenv("XDG_DATA_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "bolaget.db"
+		}
+		dir = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(dir, "bolagetdb", "bolaget.db")
+}
+
 func logger(cmd *cli.Command) *slog.Logger {
 	level := slog.LevelInfo
 	if cmd.Bool("verbose") {
@@ -160,7 +183,11 @@ func actionSync(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	db, err := store.Open(cmd.String("db"))
+	path := dbPath(cmd)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	db, err := store.Open(path)
 	if err != nil {
 		return err
 	}
@@ -317,7 +344,7 @@ func actionStores(ctx context.Context, cmd *cli.Command) error {
 		return tw.Flush()
 	}
 
-	db, err := store.Open(cmd.String("db"))
+	db, err := store.Open(dbPath(cmd))
 	if err != nil {
 		return err
 	}
@@ -340,7 +367,7 @@ func actionQuery(ctx context.Context, cmd *cli.Command) error {
 	if sql == "" {
 		return fmt.Errorf("no SQL given")
 	}
-	db, err := store.OpenExisting(cmd.String("db"))
+	db, err := store.OpenExisting(dbPath(cmd))
 	if err != nil {
 		return err
 	}
@@ -407,7 +434,7 @@ func actionQuery(ctx context.Context, cmd *cli.Command) error {
 }
 
 func actionStats(ctx context.Context, cmd *cli.Command) error {
-	db, err := store.OpenExisting(cmd.String("db"))
+	db, err := store.OpenExisting(dbPath(cmd))
 	if err != nil {
 		return err
 	}
@@ -530,7 +557,7 @@ func syncProducts(
 
 func actionExport(ctx context.Context, cmd *cli.Command) error {
 	log := logger(cmd)
-	db, err := store.OpenExisting(cmd.String("db"))
+	db, err := store.OpenExisting(dbPath(cmd))
 	if err != nil {
 		return err
 	}

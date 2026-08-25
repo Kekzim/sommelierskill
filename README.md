@@ -52,10 +52,10 @@ reason about.
 ## Usage
 
 ```bash
-make build
+make install                # builds and installs to ~/.local/bin
 
 # Full pull (~25 min). Also mirror one store's assortment while you are at it.
-./bolagetdb sync --store 0102
+bolagetdb sync --store 0102
 
 # Find a store id
 ./bolagetdb stores --search majorna
@@ -68,7 +68,13 @@ make build
 ```
 
 `query` accepts `--format table|json|csv`. No `sqlite3` binary is required —
-the driver is pure Go, so the tool is a single static binary.
+the driver is pure Go, so the tool is a single static binary with no cgo.
+
+The database is located automatically: `$BOLAGETDB` if set, else `./bolaget.db`
+when run inside the repo, else `~/.local/share/bolagetdb/bolaget.db`. Nothing
+in the repo hardcodes a path, so a clone works unchanged on another machine —
+the database itself is not committed (it is ~115 MB) and has to be built there
+with `bolagetdb sync`.
 
 ## Query cookbook
 
