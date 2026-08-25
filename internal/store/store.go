@@ -474,3 +474,44 @@ func (d *DB) ExportSlim(ctx context.Context, path string, maxRank int) (int, err
 	}
 	return n, nil
 }
+
+// PruneStale removes products that were not seen during the current sync.
+//
+// Upserts alone never delete, so anything Systembolaget delists lingers in the
+// mirror indefinitely and can be recommended long after it stopped existing.
+//
+// Callers must only prune after a run that fetched every slice successfully.
+// Pruning after a partial run would delete perfectly good products merely
+// because their slice failed.
+func (d *DB) PruneStale(ctx context.Context, before time.Time) (int, error) {
+	cutoff := before.UTC().Format(time.RFC3339)
+
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	var n int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT count(*) FROM product WHERE synced_at < ?`, cutoff).Scan(&n); err != nil {
+		return 0, err
+	}
+	if n == 0 {
+		return 0, tx.Commit()
+	}
+
+	// Delete children explicitly rather than relying on foreign_keys being on
+	// for whichever pooled connection runs this.
+	for _, q := range []string{
+		`DELETE FROM product_grape   WHERE product_id IN (SELECT product_id FROM product WHERE synced_at < ?)`,
+		`DELETE FROM product_pairing WHERE product_id IN (SELECT product_id FROM product WHERE synced_at < ?)`,
+		`DELETE FROM store_product   WHERE product_id IN (SELECT product_id FROM product WHERE synced_at < ?)`,
+		`DELETE FROM product         WHERE synced_at < ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, cutoff); err != nil {
+			return 0, fmt.Errorf("pruning: %w", err)
+		}
+	}
+	return n, tx.Commit()
+}

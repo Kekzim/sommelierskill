@@ -170,6 +170,12 @@ stock changes hourly and must be read live from
 recommending. The mirror answers *what exists and what matches*; the live API
 answers *can I buy it today*.
 
+**Delisted products are pruned, but only after a complete run.** Upserts alone
+never delete, so a discontinued wine would stay in the mirror indefinitely.
+`sync` removes anything not seen during the run — but only when every slice
+succeeded, since pruning after a partial fetch would delete good data. Use
+`--no-prune` to keep everything.
+
 **Snapshots are written from day one.** Each sync writes a dated JSONL file to
 `snapshots/`. The one public archive of this data has only 5 snapshots in 8
 years and stopped updating in November 2025, so there is no usable price

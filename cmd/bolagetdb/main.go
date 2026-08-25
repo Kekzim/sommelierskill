@@ -64,6 +64,10 @@ func main() {
 						Usage: "Only sync slices whose name contains this (case-insensitive). For debugging",
 					},
 					&cli.BoolFlag{
+						Name:  "no-prune",
+						Usage: "Keep products that were not seen this run, instead of removing delisted ones",
+					},
+					&cli.BoolFlag{
 						Name:  "skip-products",
 						Usage: "Skip the product fetch and only re-run enrichment and store passes against the existing database",
 					},
@@ -252,6 +256,25 @@ func actionSync(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 		log.Info("store assortment stored", slog.String("store", siteID), slog.Int("products", len(ids)))
+	}
+
+	// Only a run that fetched every slice cleanly is evidence that a missing
+	// product is genuinely delisted rather than merely unfetched.
+	fullRun := !skipProducts && cmd.String("only") == "" && failures == 0 && incomplete == 0
+	switch {
+	case cmd.Bool("no-prune") || !fullRun:
+		if !cmd.Bool("no-prune") && !skipProducts {
+			log.Warn("skipping prune; this run was not complete",
+				slog.Int("failures", failures), slog.Int("incompleteSlices", incomplete))
+		}
+	default:
+		pruned, err := db.PruneStale(ctx, started)
+		if err != nil {
+			return err
+		}
+		if pruned > 0 {
+			log.Info("pruned delisted products", slog.Int("count", pruned))
+		}
 	}
 
 	if err := db.Optimize(); err != nil {

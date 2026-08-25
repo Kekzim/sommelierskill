@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -248,5 +249,65 @@ func TestOpenExistingRejectsMissing(t *testing.T) {
 	}
 	if _, err := os.Stat(missing); !os.IsNotExist(err) {
 		t.Error("OpenExisting created the file it was meant to reject")
+	}
+}
+
+// Products not seen during a sync are delisted and must go, together with
+// their child rows. Upserts alone never delete, so without this a wine can be
+// recommended long after Systembolaget stopped carrying it.
+func TestPruneStale(t *testing.T) {
+	db := openTemp(t)
+
+	old := sample()
+	old.SyncedAt = time.Now().Add(-48 * time.Hour)
+
+	fresh := sample()
+	fresh.ProductID = "2"
+	fresh.SyncedAt = time.Now()
+
+	put(t, db, old, fresh)
+	if err := db.SetStoreAssortment("1001", []string{"1", "2"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := db.PruneStale(context.Background(), time.Now().Add(-1*time.Hour))
+	if err != nil {
+		t.Fatalf("PruneStale: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("pruned %d, want 1", n)
+	}
+
+	var products, grapes, pairings, storeRows int
+	db.SQL().QueryRow(`SELECT count(*) FROM product`).Scan(&products)
+	db.SQL().QueryRow(`SELECT count(*) FROM product_grape WHERE product_id='1'`).Scan(&grapes)
+	db.SQL().QueryRow(`SELECT count(*) FROM product_pairing WHERE product_id='1'`).Scan(&pairings)
+	db.SQL().QueryRow(`SELECT count(*) FROM store_product WHERE product_id='1'`).Scan(&storeRows)
+
+	if products != 1 {
+		t.Errorf("%d products remain, want 1", products)
+	}
+	if grapes != 0 || pairings != 0 || storeRows != 0 {
+		t.Errorf("orphaned child rows: grapes=%d pairings=%d store=%d", grapes, pairings, storeRows)
+	}
+
+	// The surviving product must still be intact and findable via FTS.
+	var ftsRows int
+	db.SQL().QueryRow(`SELECT count(*) FROM product_fts WHERE product_fts MATCH 'tobak'`).Scan(&ftsRows)
+	if ftsRows != 1 {
+		t.Errorf("fts matched %d rows after prune, want 1", ftsRows)
+	}
+}
+
+// Nothing to prune must be a no-op, not an error.
+func TestPruneStaleNoop(t *testing.T) {
+	db := openTemp(t)
+	put(t, db, sample())
+	n, err := db.PruneStale(context.Background(), time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("PruneStale: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("pruned %d, want 0", n)
 	}
 }

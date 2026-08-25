@@ -93,6 +93,16 @@ omitted field; `store.nullIfEmpty` converts those on the way in. Without it
 `WHERE taste IS NOT NULL` matches every row — a wrong answer with no error.
 Route new optional text columns through it (see `TestAbsentTextIsNull`).
 
+**Upserts never delete, so `sync` prunes.** Anything Systembolaget delists
+would otherwise linger in the mirror forever and be recommended long after it
+stopped existing. After the fetch, products whose `synced_at` predates the run
+are removed along with their grape, pairing and store rows.
+
+Pruning only happens when the run is demonstrably complete — every slice
+fetched, no failures, no `--only` filter, products not skipped. Pruning after a
+partial run would delete good products merely because their slice failed. A
+partial run logs that it skipped the prune. `--no-prune` opts out.
+
 **Stock is never mirrored.** Product facts change slowly and are cached; shelf
 stock changes hourly and must be read live from
 `sb-api-ecommerce/v1/stockbalance/store/{storeId}/{productId}` at the moment of
