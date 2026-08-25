@@ -64,7 +64,11 @@ make install                # builds and installs to ~/.local/bin
 # Full pull (~25 min). Also mirror one store's assortment while you are at it.
 bolagetdb sync --store 0102
 
-# Find a store id
+# Store names and addresses. Required: --store above mirrors a store's
+# assortment, but only this writes the store table the snapshot reads.
+bolagetdb stores
+
+# Find a store id (queries the API live, writes nothing)
 ./bolagetdb stores --search majorna
 
 # What is in the database, and how stale is it
@@ -211,8 +215,13 @@ The snapshot carries only products a customer can realistically buy
 (`availability_rank <= 2`), which is ~10,500 of ~27,000. `bolagetdb export
 --max-availability-rank 1` narrows it to shelf-stocked only (~5.6 MB).
 
-For Claude Code, `.claude/skills/sommelier/` drives the full database directly
-and is picked up automatically when running in this repo.
+For Claude Code, `skill-claude-code/` drives the full database directly,
+including order-only products and live shelf stock. Install it user-wide so it
+works from any directory:
+
+```bash
+ln -s "$PWD/skill-claude-code" ~/.claude/skills/sommelier
+```
 
 ## Data sourcing
 
