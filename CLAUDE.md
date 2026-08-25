@@ -13,9 +13,39 @@ that into SQL.
 Data is fetched via [systembolaget-api](https://github.com/AlexGustafsson/systembolaget-api)
 used as a **library**, not by shelling out to its CLI.
 
+## First run on a new machine
+
+**The database is not in the repo** (~115 MB, gitignored). A fresh clone has no
+data, so every `query`, `stats` and `export` fails until it is built:
+
+```bash
+make install                                        # -> ~/.local/bin/bolagetdb
+bolagetdb sync --store 0102 --store 1001 --store 1002
+make skill                                          # -> dist/sommelier.zip
+```
+
+The sync takes ~25 minutes. **Run it in a real terminal, not as a backgrounded
+command from a Claude Code session** — session teardown sends a signal that
+cancels the context, and two attempts died that way mid-run. A partial sync is
+not corrupting (the prune guard refuses to delete after an incomplete run) but
+it leaves the mirror half-refreshed, which `bolagetdb stats` will show as rows
+carrying two different `synced_at` dates.
+
+The store ids above are the ones this project cares about: **1001
+Wachtmeister** and **1002 Amiralen** are the owner's local shops in the
+Karlskrona area; **0102 Fältöversten** (Stockholm) is kept from testing. Store
+assortments are opt-in per store, roughly a minute each; mirroring all ~450
+would take about 11 hours. Find ids with `bolagetdb stores --search <town>`.
+
+Go 1.21 or newer is enough — `go.mod` asks for 1.26.4 and `GOTOOLCHAIN=auto`
+fetches it. `make skill` also needs `zip`. There is no cgo and no `sqlite3`
+dependency.
+
 ## Commands
 
 ```bash
+make install                # build + install to ~/.local/bin
+make skill                  # build the Claude apps package -> dist/sommelier.zip
 make build                  # -> ./bolagetdb
 make test                   # go test ./...
 make vet
@@ -138,6 +168,37 @@ allowlists it. Any similar helper must do the same.
 
 **Keep `--page-delay` non-zero.** This is an undocumented API and an agent will
 otherwise hit it far harder than any human browsing session.
+
+## Where the work stands
+
+Known open items, so a fresh session does not have to rediscover them:
+
+- **The mirror may be mid-refresh.** Check with `bolagetdb stats`; if rows carry
+  two `synced_at` dates, a sync was interrupted. Re-run a full sync, which will
+  also prune whatever has been delisted since.
+- **Module path is `github.com/ejonsvn/bolagetdb`** while the repo is
+  `Kekzim/sommelierskill`. Harmless locally, breaks `go get`. Mechanical to
+  change, deliberately left alone.
+- **`push.gpgsign` is per-machine.** If it is `true` globally, pushes to GitHub
+  fail with "the receiving end does not support --signed push" — GitHub signs
+  commits, not pushes. Fix per-repo: `git config --local push.gpgsign false`.
+- **Unanswered question: how many orange wines does Systembolaget carry?**
+  There is no orange category — it has to be inferred. Name plus colour text
+  gives ~71, but that misses wines advertised as `qvevri`, `anfora` or
+  `macererad`, and ~3,300 white wines carry no colour description at all
+  (almost all order-only). Any answer needs its uncertainty stated.
+- **The two skills have diverged.** `skill/` has the sommelier persona and
+  method; `.claude/skills/sommelier/` is still the older data-access-only
+  version. The method is runtime-independent and could be shared; the
+  mechanics (local binary and live stock vs bundled snapshot) cannot.
+
+## Related work
+
+The upstream CLI in `systembolaget-api` had `--sort-by` silently dropped
+(`ctx.Value` instead of `cmd.String`). That is worse than it sounds: with
+`sortBy` never sent, full-assortment dumps paged over an unstable ordering and
+lost ~23% of products while reporting a plausible row count. A one-line fix
+exists in that repo's working tree, uncommitted and unpushed.
 
 ## Agent-facing skills
 

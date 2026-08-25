@@ -56,6 +56,8 @@ reason about.
 
 ## Usage
 
+A fresh clone has no database — it is ~115 MB and not committed. Build it once:
+
 ```bash
 make install                # builds and installs to ~/.local/bin
 
