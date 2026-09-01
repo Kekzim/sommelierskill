@@ -134,3 +134,42 @@ func TestFromAPIWrongTypes(t *testing.T) {
 		t.Errorf("expected zero values for mistyped fields, got %+v", out)
 	}
 }
+
+// Release scheduling is what makes "what drops on Friday" answerable, so the
+// three fields behind it must survive the raw record.
+func TestFromAPIReleaseFields(t *testing.T) {
+	p := systembolaget.Product{
+		"productId":         "1",
+		"productNameBold":   "Château Test",
+		"assortmentText":    "Tillfälligt sortiment",
+		"productLaunchDate": "2026-09-11T00:00:00",
+		"sellStartTime":     "10:00:00",
+		"isNews":            true,
+		"assortment":        "TSE",
+	}
+	got := FromAPI(p, "{}", time.Now())
+
+	if got.LaunchDate != "2026-09-11T00:00:00" {
+		t.Errorf("LaunchDate = %q", got.LaunchDate)
+	}
+	if got.SellStartTime != "10:00:00" {
+		t.Errorf("SellStartTime = %q", got.SellStartTime)
+	}
+	if !got.IsNews {
+		t.Error("IsNews = false, want true")
+	}
+	// assortment_code discriminates where assortment_text cannot: TSE and TSV
+	// both read as "Tillfälligt sortiment".
+	if got.AssortmentCode != "TSE" {
+		t.Errorf("AssortmentCode = %q, want TSE", got.AssortmentCode)
+	}
+}
+
+// A record missing the release fields entirely must yield zero values rather
+// than an error, like every other field in normalize.
+func TestFromAPIReleaseFieldsAbsent(t *testing.T) {
+	got := FromAPI(systembolaget.Product{"productId": "1", "productNameBold": "x"}, "{}", time.Now())
+	if got.LaunchDate != "" || got.SellStartTime != "" || got.AssortmentCode != "" || got.IsNews {
+		t.Errorf("absent release fields did not yield zero values: %+v", got)
+	}
+}

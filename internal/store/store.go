@@ -44,6 +44,13 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Migration runs first: schema.sql creates indexes over columns that
+	// migration is responsible for adding, so applying the schema to an older
+	// database would fail on a missing column before the fix could be applied.
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrating schema: %w", err)
+	}
 	if _, err := db.Exec(schemaSQL); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("applying schema: %w", err)
@@ -66,8 +73,9 @@ INSERT INTO product (
   packaging, seal, co2_impact,
   clock_body, clock_tannin, clock_sweetness, clock_bitter, clock_fruitacid,
   clock_smokiness, clock_casque, casque_text,
-  taste, color, usage, launch_date, raw, synced_at
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  taste, color, usage,
+  launch_date, sell_start_time, is_news, assortment_code, raw, synced_at
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(product_id) DO UPDATE SET
   product_number=excluded.product_number, name=excluded.name, name_thin=excluded.name_thin,
   full_name=excluded.full_name, producer=excluded.producer, supplier=excluded.supplier,
@@ -85,7 +93,9 @@ ON CONFLICT(product_id) DO UPDATE SET
   clock_fruitacid=excluded.clock_fruitacid, clock_smokiness=excluded.clock_smokiness,
   clock_casque=excluded.clock_casque, casque_text=excluded.casque_text,
   taste=excluded.taste, color=excluded.color, usage=excluded.usage,
-  launch_date=excluded.launch_date, raw=excluded.raw, synced_at=excluded.synced_at`
+  launch_date=excluded.launch_date, sell_start_time=excluded.sell_start_time,
+  is_news=excluded.is_news, assortment_code=excluded.assortment_code,
+  raw=excluded.raw, synced_at=excluded.synced_at`
 
 // Writer batches product upserts inside a single transaction.
 type Writer struct {
@@ -149,7 +159,8 @@ func (w *Writer) Put(p normalize.Product) error {
 		p.ClockBody, p.ClockTannin, p.ClockSweetness, p.ClockBitter, p.ClockFruitacid,
 		p.ClockSmokiness, p.ClockCasque, nullIfEmpty(p.CasqueText),
 		nullIfEmpty(p.Taste), nullIfEmpty(p.Color), nullIfEmpty(p.Usage),
-		nullIfEmpty(p.LaunchDate), p.Raw, ts,
+		nullIfEmpty(p.LaunchDate), nullIfEmpty(p.SellStartTime), p.IsNews,
+		nullIfEmpty(p.AssortmentCode), p.Raw, ts,
 	); err != nil {
 		return fmt.Errorf("upsert product %s: %w", p.ProductID, err)
 	}
@@ -354,7 +365,8 @@ CREATE TABLE product (
   is_gluten_free INTEGER, is_kosher INTEGER,
   clock_body INTEGER, clock_tannin INTEGER, clock_sweetness INTEGER,
   clock_bitter INTEGER, clock_fruitacid INTEGER, clock_smokiness INTEGER,
-  packaging TEXT, taste TEXT, color TEXT, usage TEXT
+  packaging TEXT, taste TEXT, color TEXT, usage TEXT,
+  launch_date TEXT, sell_start_time TEXT, is_news INTEGER, assortment_code TEXT
 );
 CREATE TABLE product_grape (product_id TEXT, grape TEXT, raw_name TEXT);
 CREATE TABLE product_pairing (product_id TEXT, pairing TEXT);
@@ -363,6 +375,7 @@ CREATE TABLE store_product (site_id TEXT, product_id TEXT, PRIMARY KEY (site_id,
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE INDEX idx_x_cat ON product(cat1, cat2);
 CREATE INDEX idx_x_avail ON product(availability_rank, price);
+CREATE INDEX idx_x_launch ON product(launch_date, availability_rank);
 CREATE INDEX idx_x_grape ON product_grape(grape);
 CREATE INDEX idx_x_pairing ON product_pairing(pairing);
 CREATE INDEX idx_x_storeprod ON store_product(product_id);
@@ -403,7 +416,8 @@ func (d *DB) ExportSlim(ctx context.Context, path string, maxRank int) (int, err
 		   abv, sek_per_litre, availability, availability_rank, is_organic, is_vegan,
 		   is_natural, is_gluten_free, is_kosher, clock_body, clock_tannin,
 		   clock_sweetness, clock_bitter, clock_fruitacid, clock_smokiness,
-		   packaging, taste, color, usage
+		   packaging, taste, color, usage,
+		   launch_date, sell_start_time, is_news, assortment_code
 		 FROM main.product WHERE availability_rank <= ? AND is_discontinued = 0`,
 		`INSERT INTO slim.product_grape SELECT g.* FROM main.product_grape g
 		 JOIN slim.product p ON p.product_id = g.product_id`,

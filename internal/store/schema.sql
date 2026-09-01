@@ -81,7 +81,16 @@ CREATE TABLE IF NOT EXISTS product (
   color                 TEXT,
   usage                 TEXT,
 
+  -- Release scheduling. Limited products are listed on a weekly Thu/Fri cadence
+  -- and pre-announced, so launch_date is frequently in the future -- that is
+  -- what makes "what drops on Friday" answerable at all. sell_start_time is the
+  -- time of day sales open. assortment_code is the short code (FS, TSE, TSS,
+  -- TST, TSV) behind assortment_text.
   launch_date           TEXT,
+  sell_start_time       TEXT,
+  is_news               INTEGER NOT NULL DEFAULT 0,
+  assortment_code       TEXT,
+
   raw                   TEXT NOT NULL,      -- verbatim API JSON
   synced_at             TEXT NOT NULL
 );
@@ -93,6 +102,8 @@ CREATE INDEX IF NOT EXISTS idx_product_sekl       ON product(sek_per_litre);
 CREATE INDEX IF NOT EXISTS idx_product_country    ON product(country);
 CREATE INDEX IF NOT EXISTS idx_product_producer   ON product(producer);
 CREATE INDEX IF NOT EXISTS idx_product_clocks     ON product(clock_body, clock_tannin, clock_sweetness);
+-- Upcoming releases are queried as a date window over the limited assortment.
+CREATE INDEX IF NOT EXISTS idx_product_launch     ON product(launch_date, availability_rank);
 
 -- Grapes, normalised to a canonical name. `raw_name` keeps what the API said so
 -- a bad synonym mapping is always recoverable.

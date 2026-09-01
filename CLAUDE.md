@@ -179,6 +179,22 @@ allowlists it. Any similar helper must do the same.
 **Keep `--page-delay` non-zero.** This is an undocumented API and an agent will
 otherwise hit it far harder than any human browsing session.
 
+**Adding a column is a two-line change, in two files.** `schema.sql` is all
+`CREATE TABLE IF NOT EXISTS`, so it only ever builds a *fresh* database — adding
+a column there is silently skipped on an existing one, and the miss surfaces
+later as an upsert failing on a column that is not there. So every added column
+is declared twice: in `schema.sql` for new databases, and in `addedColumns`
+(`internal/store/migrate.go`) for existing ones, with a `json_extract` that
+recovers it from `raw`. The backfill is what makes this cheap — the verbatim
+JSON is already stored, so a new column is populated for all ~27k rows in about
+three seconds instead of a 25-minute resync.
+
+**`migrate` runs before `schema.sql`, not after.** The schema creates indexes
+over columns that migration is responsible for adding, so applying it first to
+an older database fails on a missing column *before* the migration that would
+have fixed it can run — leaving `Open` permanently broken. `migrate` therefore
+skips tables that do not exist yet, which is the fresh-database case.
+
 ## Where the work stands
 
 Known open items, so a fresh session does not have to rediscover them:
@@ -197,12 +213,13 @@ Known open items, so a fresh session does not have to rediscover them:
   gives ~71, but that misses wines advertised as `qvevri`, `anfora` or
   `macererad`, and ~3,300 white wines carry no colour description at all
   (almost all order-only). Any answer needs its uncertainty stated.
-- **`export` duplicates the column list in two places.** `exportSchema` (the
+- **`export` duplicates the column list in two places** — `exportSchema` (the
   snapshot's `CREATE TABLE`) and the `INSERT INTO slim.product SELECT ...` in
-  `ExportSlim` both spell out every column by hand. A column added to `product`
-  reaches the app skill only when both are updated, and nothing fails loudly if
-  they are not — the snapshot just quietly lacks the field. Verified by reading
-  the code, not yet a problem in practice.
+  `ExportSlim`. A column added to `product` reaches the app skill only when both
+  are updated, and nothing fails loudly if they are not. **This was not
+  theoretical**: `launch_date` existed in `product` for months and never once
+  reached the snapshot, so the app skill could not have answered a question
+  about release dates. Fixed for the release columns; the duplication remains.
 
 ## Related work
 

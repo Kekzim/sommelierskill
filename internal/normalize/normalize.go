@@ -136,9 +136,18 @@ type Product struct {
 	Color string
 	Usage string
 
-	LaunchDate string
-	Grapes     []Grape
-	Pairings   []string
+	// Release scheduling. Systembolaget lists limited products on a weekly
+	// Thursday/Friday cadence and pre-announces them, so LaunchDate is often in
+	// the future. SellStartTime is the time of day sales open ("10:00:00").
+	LaunchDate    string
+	SellStartTime string
+	IsNews        bool
+	// AssortmentCode is the short code behind AssortmentText: FS (fast), TSE/TSS/
+	// TST/TSV (the temporary sub-types), and so on. Narrower than AssortmentText.
+	AssortmentCode string
+
+	Grapes   []Grape
+	Pairings []string
 
 	Raw      string
 	SyncedAt time.Time
@@ -202,9 +211,13 @@ func FromAPI(p systembolaget.Product, raw string, syncedAt time.Time) Product {
 		Color: str(p, "color"),
 		Usage: str(p, "usage"),
 
-		LaunchDate: str(p, "productLaunchDate"),
-		Raw:        raw,
-		SyncedAt:   syncedAt,
+		LaunchDate:     str(p, "productLaunchDate"),
+		SellStartTime:  str(p, "sellStartTime"),
+		IsNews:         boolean(p, "isNews"),
+		AssortmentCode: str(p, "assortment"),
+
+		Raw:      raw,
+		SyncedAt: syncedAt,
 	}
 
 	out.FullName = strings.TrimSpace(out.Name + " " + out.NameThin)
