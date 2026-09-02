@@ -13,3 +13,6 @@
 
 # Built skill package. Regenerate with `make skill`.
 /dist/
+
+# Local compose configuration (holds the auth token).
+.env

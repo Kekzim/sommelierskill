@@ -189,6 +189,15 @@ recovers it from `raw`. The backfill is what makes this cheap — the verbatim
 JSON is already stored, so a new column is populated for all ~27k rows in about
 three seconds instead of a 25-minute resync.
 
+**`Open` converts any database it touches to WAL.** The DSN sets
+`journal_mode(WAL)`, so *any* command — `bolagetdb --db X query "SELECT 1"`
+included — rewrites X's header. That matters because SQLite cannot open a
+WAL database read-only: it wants to create a `-shm` sidecar and fails with
+"attempt to write a readonly database". The Docker deployment therefore
+publishes with `VACUUM INTO` (which writes rollback-journal mode) and never
+points `bolagetdb` at the published file. Verifying a published database by
+querying it is exactly the move that breaks it.
+
 **`migrate` runs before `schema.sql`, not after.** The schema creates indexes
 over columns that migration is responsible for adding, so applying it first to
 an older database fails on a missing column *before* the migration that would

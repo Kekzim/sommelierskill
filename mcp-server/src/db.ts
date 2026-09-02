@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { statSync } from "node:fs";
+import { closeSync, openSync, readSync, statSync } from "node:fs";
 import { SQL_ROW_CAP, SQL_TIMEOUT_MS } from "./constants.js";
 
 /**
@@ -37,16 +37,61 @@ export class Mirror {
     this.db?.close();
     // readOnly keeps this process incapable of writing to the mirror at all,
     // which is the guarantee the query tool leans on.
-    this.db = new DatabaseSync(this.path, { readOnly: true });
+    try {
+      this.db = new DatabaseSync(this.path, { readOnly: true });
+    } catch (err) {
+      throw new Error(this.explainOpenFailure(err as Error));
+    }
     this.db.exec(`PRAGMA busy_timeout = ${SQL_TIMEOUT_MS}`);
     this.inode = ino;
     return this.db;
   }
 
+  /**
+   * SQLite's message for the failure that actually happens here -- a WAL-mode
+   * database on a read-only mount -- is "unable to open database file", which
+   * says nothing useful. WAL needs a -shm sidecar it cannot create, so the
+   * published copy must be in rollback-journal mode. Byte 18 of the header is
+   * the write version: 1 rollback, 2 WAL.
+   */
+  private explainOpenFailure(err: Error): string {
+    let writeVersion: number | null = null;
+    try {
+      const head = Buffer.alloc(20);
+      const fd = openSync(this.path, "r");
+      readSync(fd, head, 0, 20, 0);
+      closeSync(fd);
+      writeVersion = head[18] ?? null;
+    } catch {
+      // Fall through to the generic message.
+    }
+    if (writeVersion === 2) {
+      return (
+        `Cannot open ${this.path}: it is in WAL mode, and SQLite cannot open a WAL ` +
+        `database read-only (it needs to create a -shm sidecar). The publish step writes ` +
+        `a rollback-journal copy with VACUUM INTO precisely to avoid this -- something has ` +
+        `since run bolagetdb against the published file, which converts it back to WAL. ` +
+        `Re-publish, and never point bolagetdb at the live database. (${err.message})`
+      );
+    }
+    return `Cannot open ${this.path}: ${err.message}`;
+  }
+
   /** Run a parameterised read. */
   all<T = Record<string, unknown>>(sql: string, ...params: unknown[]): T[] {
-    const stmt = this.handle().prepare(sql);
-    return stmt.all(...(params as never[])) as T[];
+    try {
+      const stmt = this.handle().prepare(sql);
+      return stmt.all(...(params as never[])) as T[];
+    } catch (err) {
+      // A file converted to WAL underneath us keeps the same inode, so the
+      // handle is not reopened and the failure lands here rather than on open.
+      // Same cause, so it deserves the same explanation.
+      const msg = (err as Error).message;
+      if (/unable to open database file|readonly|disk I\/O/i.test(msg)) {
+        throw new Error(this.explainOpenFailure(err as Error));
+      }
+      throw err;
+    }
   }
 
   /** Run a read expected to yield at most one row. */

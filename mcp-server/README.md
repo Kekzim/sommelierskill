@@ -104,3 +104,69 @@ validation exists to give a clear error rather than a confusing SQLite one.
 **Auth is on even inside the network.** The server is reachable only over the
 VPN, but a private network is not an authorisation boundary. Set
 `MCP_AUTH_TOKEN`; the check is constant-time.
+
+## Running it in Docker
+
+From the repo root:
+
+```bash
+cp .env.example .env    # set MCP_AUTH_TOKEN (openssl rand -hex 32)
+docker compose up -d
+```
+
+Two services share one volume. `sync` writes it: it refreshes the mirror on a
+schedule and publishes a copy. `mcp` mounts the same volume **read-only** and
+serves it. The MCP port binds to `127.0.0.1` unless `BIND_ADDR` says otherwise —
+set that to the VPN address to reach it from another machine.
+
+With an empty volume the first run builds the mirror from scratch, which takes
+about 25 minutes. The server starts anyway and reports the missing database
+through `/health` rather than crash-looping.
+
+### The publish step, and the trap in it
+
+The sync job never edits the live file. It copies it, syncs the copy, then
+writes the result with `VACUUM INTO` and renames that into place. Two separate
+reasons:
+
+**Atomicity.** Rename is atomic within the volume, so a reader sees the old
+database or the new one, never a half-written one. The server compares the inode
+before each use and reopens when it changes — verified: a swap under a running
+server is picked up with no restart.
+
+**Read-only openability.** `bolagetdb` keeps the mirror in WAL mode, and SQLite
+**cannot open a WAL database read-only** — it wants to create a `-shm` sidecar
+and fails with `attempt to write a readonly database`. `VACUUM INTO` writes a
+fresh database in rollback-journal mode, which opens read-only cleanly, and
+compacts it on the way.
+
+> **Never point `bolagetdb` at the published database.** `Open()` sets
+> `journal_mode=WAL` in its DSN, so any command against the live file — even
+> `query "SELECT 1"` — silently converts it back to WAL and breaks the server.
+> Work on a copy. The publish step asserts the write version before renaming,
+> and the server explains this specific cause if it happens anyway.
+
+### If the volume was seeded by hand
+
+Restoring a backup instead of waiting 25 minutes is reasonable, but the files
+must be owned by uid 10001, and so must the directory — SQLite needs to create
+sidecar files next to the database:
+
+```bash
+docker run --rm -v sommelier_mirror:/data alpine chown -R 10001:10001 /data
+```
+
+Without it the sync fails with SQLite's `attempt to write a readonly database`,
+which does not mention permissions at all. The sync script checks for this up
+front and prints the fix.
+
+### Schedule
+
+`CRON_SCHEDULE` defaults to `0 19 * * 5` — Friday evening, Europe/Stockholm.
+Releases land weekly on Thursday and Friday and are pre-announced, so a weekly
+run sees next week's drops before they happen; nightly would triple the load on
+an undocumented API for nothing. Run one on demand with:
+
+```bash
+docker compose exec sync /usr/local/bin/sync.sh once
+```

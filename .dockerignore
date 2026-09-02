@@ -1,0 +1,12 @@
+.git
+dist/
+snapshots/
+*.db
+*.db-wal
+*.db-shm
+*.log
+bolagetdb
+mcp-server/node_modules
+mcp-server/dist
+skill/
+skill-claude-code/

@@ -1,0 +1,84 @@
+name: sommelier
+
+services:
+  # Refreshes the mirror on a schedule and publishes a read-only-safe copy.
+  # Writes the volume; nothing else does.
+  sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bolagetdb-sync:latest
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Stockholm
+      # Releases land weekly on Thursday/Friday and are pre-announced, so
+      # Friday evening picks up the coming week before it happens.
+      CRON_SCHEDULE: ${CRON_SCHEDULE:-0 19 * * 5}
+      SYNC_STORES: ${SYNC_STORES:-1001 1002}
+    volumes:
+      - mirror:/data
+    networks: [egress]
+    # A sync is ~25 minutes of paced HTTP against an undocumented API. Give it
+    # room, but not enough to starve the host.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep crond > /dev/null || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  mcp:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    image: systembolaget-mcp-server:latest
+    restart: unless-stopped
+    environment:
+      # Inside the container it binds all interfaces; exposure is controlled by
+      # the published port below, not by this.
+      HOST: 0.0.0.0
+      PORT: 8848
+      BOLAGETDB_PATH: /data/bolaget.db
+      # Required. Without it the server accepts unauthenticated requests, and a
+      # private network is not an authorisation boundary.
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?set MCP_AUTH_TOKEN in .env}
+      # Optional: only live shelf-stock checks need it.
+      SYSTEMBOLAGET_API_KEY: ${SYSTEMBOLAGET_API_KEY:-}
+    ports:
+      # Bind to the VPN interface, not 0.0.0.0. Default keeps it host-local so a
+      # missing BIND_ADDR cannot accidentally publish to every interface.
+      - "${BIND_ADDR:-127.0.0.1}:${HOST_PORT:-8848}:8848"
+    volumes:
+      # Read-only: the server has no business writing the mirror, and the
+      # published copy is in rollback-journal mode precisely so this works.
+      - mirror:/data:ro
+    networks: [egress]
+    depends_on:
+      # Only ordering. The server starts fine without a mirror and reports the
+      # problem through /health, which is better than a crash loop on first run.
+      - sync
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  # Both containers need outbound access: sync pulls the assortment, and the
+  # MCP server checks live shelf stock.
+  egress:
+    driver: bridge
+
+volumes:
+  mirror:
