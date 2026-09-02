@@ -224,6 +224,14 @@ Error Handling:
             "e.g. \"taste:(tobak AND körsbär) NOT taste:ek\". Diacritics fold, so 'korsbar' " +
             "matches 'körsbär'.",
         ),
+      category: z
+        .string()
+        .optional()
+        .describe("Restrict to a category, e.g. 'Rött vin' -- notes exist for beer and spirits too"),
+      country: z.string().optional().describe("Country, e.g. 'Italien'"),
+      min_price: z.number().min(0).optional().describe("Minimum price in SEK"),
+      max_price: z.number().min(0).optional().describe("Maximum price in SEK"),
+      store_id: z.string().optional().describe("Only products a mirrored store carries"),
       ...availabilitySchema,
       ...pagingSchema,
     })
@@ -239,7 +247,10 @@ Systembolaget's own site cannot do this -- it offers single-term search only. No
 
 Args:
   - match (string): an FTS5 expression, e.g. "taste:(tobak AND körsbär) NOT taste:ek"
+  - category, country, min_price, max_price, store_id: narrow the matches -- notes exist for beer and spirits too, not only wine
   - max_availability_rank, limit, offset, response_format
+
+Column-filter syntax matters: "taste:(a AND b)" works, but "taste:a AND taste:b" does not match the way you expect.
 
 Returns a page of matching products.
 
@@ -255,8 +266,9 @@ Error Handling:
     },
     async (params) =>
       guard(() => {
-        const where = `product_fts MATCH ? AND p.availability_rank <= ? AND p.is_discontinued = 0`;
-        const binds = [params.match, params.max_availability_rank];
+        const { sql, params: filterBinds } = commonFilters(params);
+        const where = ["product_fts MATCH ?", ...sql].join(" AND ");
+        const binds: unknown[] = [params.match, ...filterBinds];
         let total: number;
         try {
           total = db.get<{ total: number }>(

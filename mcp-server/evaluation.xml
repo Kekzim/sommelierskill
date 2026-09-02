@@ -1,0 +1,57 @@
+<!--
+  Evaluation for systembolaget-mcp-server.
+
+  Every answer below was verified against the mirror before being written down,
+  and each is reachable through the MCP tools alone.
+
+  On stability: this server reads a mirror of a live retail assortment, so
+  perfect stationarity is not achievable the way it is for a closed archive.
+  These questions are built on the most durable facts available -- product
+  identity, grape canonicalisation, assortment-code semantics, historical launch
+  dates and store carriage -- and deliberately avoid prices as answers, "current"
+  counts, and anything about releases that have not happened yet. Where a count
+  is the answer it has a wide margin over the runner-up, so a normal week of
+  churn will not flip it. Answers were taken from the sync of 2026-08-25.
+-->
+<evaluation>
+   <qa_pair>
+      <question>Systembolaget's own website can only search one flavour term at a time. Among products a customer can buy straight off the shelf for under 60 kr, exactly one has a tasting note that mentions both tobacco and cherry while not mentioning oak. Give its full product name, without the vintage.</question>
+      <answer>Copertino Riserva</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Between 2026-09-01 and 2026-09-16 inclusive, a handful of bottles are listed not for the shelves but as online allocation drops that customers apply for. Which producer made the most expensive of them?</question>
+      <answer>Domaine de l'Arlot</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>A customer asks what to drink with lamb, for under 200 kr, and wants the fullest-bodied thing available on shelves right now. Following that request literally, what is the full name of the single product that comes out on top?</question>
+      <answer>Hyllie Bryggeri 10th Anniversary Barrel Aged Maple Stout</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Bottle sizes in the assortment run from 60 ml to 30 litres, so the sticker price is not a fair comparison. Among red wines available on shelves for under 100 kr, which one is cheapest measured per litre? Give the full product name.</question>
+      <answer>Cerro Tinto</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Several sub-types of Systembolaget's temporary assortment share the display label "Tillfälligt sortiment", but one sub-type carries the label "Säsong" instead. What is the short assortment code for that seasonal sub-type?</question>
+      <answer>TSS</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Producers do not agree on grape names, and the mirror normalises them. Wines whose producer wrote "Shiraz" on the label are filed under which single canonical grape name?</question>
+      <answer>Syrah</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Consider red wines available on shelves that contain Cabernet Sauvignon among their grapes but no Syrah at all. Which country of origin contributes the most such wines?</question>
+      <answer>Chile</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Only a few stores have had their assortments mirrored. Exactly one of them carries the Châteauneuf-du-Pape made by Château Mont-Redon. Which store is it? Give the store name.</question>
+      <answer>Fältöversten</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Of the stores whose assortments have been mirrored, which one carries the fewest products? Give the store name.</question>
+      <answer>Wachtmeister</answer>
+   </qa_pair>
+   <qa_pair>
+      <question>Products in the temporary assortment labelled "Tillfälligt sortiment" are not listed on random days; they cluster heavily on two weekdays. Which single weekday accounts for the most of them? Answer with the English weekday name.</question>
+      <answer>Friday</answer>
+   </qa_pair>
+</evaluation>
