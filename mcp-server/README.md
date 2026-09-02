@@ -170,3 +170,41 @@ an undocumented API for nothing. Run one on demand with:
 ```bash
 docker compose exec sync /usr/local/bin/sync.sh once
 ```
+
+## Connecting a client
+
+The server speaks streamable HTTP at `POST /mcp` and expects the bearer token in
+an `Authorization` header. Copy `.mcp.json.example`, fill in the host and token,
+and place it where your client reads MCP configuration — for Claude Code that is
+`.mcp.json` in the project directory, or `~/.claude.json` for every project.
+
+```json
+{
+  "mcpServers": {
+    "systembolaget": {
+      "type": "http",
+      "url": "http://YOUR-VPN-HOST:8848/mcp",
+      "headers": { "Authorization": "Bearer YOUR_MCP_AUTH_TOKEN" }
+    }
+  }
+}
+```
+
+`claude mcp add` can register it from the command line instead; check
+`claude mcp add --help` for the current flags rather than trusting a snippet.
+
+**Do not commit the filled-in file** — it holds the token. `.mcp.json` is
+gitignored for that reason; the example is not.
+
+Check it end to end before wiring a client up:
+
+```bash
+curl -s -H 'Authorization: Bearer YOUR_MCP_AUTH_TOKEN' \
+     -H 'Content-Type: application/json' \
+     -H 'Accept: application/json, text/event-stream' \
+     -X POST http://YOUR-VPN-HOST:8848/mcp \
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+Nine tools come back. A 401 means the token does not match; a connection refusal
+usually means `BIND_ADDR` is still `127.0.0.1` on the server.

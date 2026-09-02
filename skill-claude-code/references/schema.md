@@ -1,5 +1,16 @@
 # Schema, query mechanics and recipes
 
+Two things use this file, and neither is the common path:
+
+1. **The `systembolaget_query` MCP tool**, for questions the purpose-built tools
+   do not cover — counting, grouping, correlating. The schema below is what that
+   tool queries; the recipes are worked examples.
+2. **The `bolagetdb` fallback**, when the MCP tools are not configured or the
+   server is unreachable.
+
+For ordinary recommendation work, use the tools in `tools.md` instead. They
+apply the availability rules and the pagination for you.
+
 ## Running queries
 
 ```bash
@@ -7,6 +18,12 @@ bolagetdb query "SELECT full_name, price FROM product LIMIT 5"
 bolagetdb query --format json "SELECT ..."
 bolagetdb stats                      # contents + staleness
 ```
+
+**Never run `bolagetdb` against a database the MCP server is serving.** Opening
+it converts the file to WAL mode, and the server reads it from a read-only
+mount, where a WAL database cannot be opened at all. That applies to a plain
+`SELECT 1`. The fallback path is for the local mirror on this machine, which is
+a different file from the one the server publishes.
 
 Use `--format json` for parsing, `--format table` when showing the user. The
 database is found automatically: `$BOLAGETDB` if set, else `./bolaget.db` when
@@ -30,6 +47,8 @@ make install && bolagetdb sync --store 1001 --store 1002 && bolagetdb stores
 - Numbers: `vintage`, `price`, `volume_ml`, `abv`, `sugar_g_per_100ml`
 - Derived: `sek_per_litre`, `sek_per_cl_alcohol` — use these for value comparisons, never raw `price` across different bottle sizes
 - Availability: `availability`, `availability_rank`, `assortment_text`, `is_discontinued`, `is_out_of_stock`
+- Assortment code: `assortment_code` — sharper than `assortment_text`, which collapses distinctions: `TSE` and `TSV` both display as "Tillfälligt sortiment", `TSS` is "Säsong", `TSLS` is "Lokalt & Småskaligt", `FS`/`FSN`/`FSB` are all "Fast sortiment", `BS` is order-only
+- Release: `launch_date` (often in the **future** — releases are pre-announced), `sell_start_time` (usually `10:00:00`), `is_news`, `is_web_launch` (allocation drops applied for online, not shop releases; these read as `order_only` because their assortment text is not a shelf tier)
 - Dietary: `is_organic`, `is_vegan`, `is_natural`, `is_gluten_free`, `is_kosher`, `is_sustainable`, `is_ethical`
 - Taste clocks, 0–12: `clock_body`, `clock_tannin`, `clock_sweetness`, `clock_bitter`, `clock_fruitacid`, `clock_smokiness`, `clock_casque`
 - Text: `taste`, `color`, `usage`
@@ -168,6 +187,20 @@ JOIN product_pairing pr USING (product_id)
 WHERE sp.site_id = '1001' AND pr.pairing = 'Vilt' AND p.availability_rank = 1
 ORDER BY p.clock_body DESC, p.price LIMIT 5;
 ```
+
+### What is being released in a date window
+
+```sql
+SELECT substr(launch_date,1,10) AS launch, sell_start_time, assortment_code,
+       is_web_launch, full_name, producer, price
+FROM product
+WHERE substr(launch_date,1,10) BETWEEN '2026-09-01' AND '2026-09-16'
+  AND assortment_code LIKE 'TS%'
+ORDER BY launch, price DESC;
+```
+
+`launch_date` is a full timestamp, so compare on the date prefix. Filter
+`is_web_launch = 0` for what can actually be bought over a counter.
 
 ### Find a specific bottle
 

@@ -1,14 +1,21 @@
 ---
 name: sommelier
-description: Recommend wine, beer, whisky and other drinks buyable in Sweden, using the FULL local bolagetdb mirror - all ~27k Systembolaget products including order-only ones - plus live shelf-stock checks for specific stores. Requires the bolagetdb binary and its local database, so prefer this over any snapshot-based sommelier skill whenever both are offered. Use whenever someone asks what to drink or buy, what wine goes with a dish, what to bring to dinner or give as a gift, for something similar to a bottle they liked, for a cheaper alternative to an expensive wine, or about a drink's price, grape, taste profile or availability in Sweden. Applies equally to requests in Swedish - vin, öl, whisky, bubbel, systembolaget, vad ska jag dricka till.
+description: Recommend wine, beer, whisky and other drinks buyable in Sweden from the FULL Systembolaget assortment - all ~27k products including order-only ones - with live shelf-stock checks and upcoming-release lookups. Drives the systembolaget_* MCP tools when they are available and the local bolagetdb mirror otherwise, so prefer this over any snapshot-based sommelier skill whenever both are offered. Use whenever someone asks what to drink or buy, what wine goes with a dish, what to bring to dinner or give as a gift, for something similar to a bottle they liked, for a cheaper alternative to an expensive wine, or about a drink's price, grape, taste profile or availability in Sweden. Applies equally to requests in Swedish - vin, öl, whisky, bubbel, systembolaget, vad ska jag dricka till.
 ---
 
 # Sommelier
 
 Systembolaget is Sweden's alcohol retail monopoly, so "can I buy this in
-Sweden" has exactly one answer. `bolagetdb` is a local SQL mirror of their full
+Sweden" has exactly one answer. Behind this skill is a mirror of their full
 assortment (~27k products), which makes taste-based discovery fast and
-expressive.
+expressive in a way their own site cannot manage.
+
+You reach it one of two ways, and the method below is identical either way:
+
+- **The `systembolaget_*` MCP tools**, when they are configured. Prefer these.
+  They cover search, tasting notes, similarity, releases, stores, live stock and
+  raw SQL, and they enforce the availability rules for you.
+- **`bolagetdb query`** against the local mirror, when the tools are not there.
 
 Your job is not to be a search engine over that database. It is to work out
 what someone will actually enjoy, and to name bottles they can walk in and buy.
@@ -31,8 +38,9 @@ If they have already given you enough, do not interrogate them. Query.
 See `references/preferences.md` for the mapping from ordinary language —
 "smooth", "full-bodied", "crisp", "like a Burgundy" — into SQL.
 
-**3. Query, always constrained by availability.** See `references/schema.md`
-for the schema, query mechanics and worked recipes.
+**3. Query, always constrained by availability.** `references/tools.md` maps
+requests onto tools and carries the judgement the tool descriptions cannot.
+`references/schema.md` has the schema, for raw SQL and for the fallback path.
 
 **4. Research the shortlist, not the whole field.** Filter first, then look up
 reviews or background on the handful that survived. Researching first mostly
@@ -77,6 +85,13 @@ never check it for more than the handful you are about to name.
 
 For a store that has not been mirrored, say so rather than implying the wine is
 unavailable there. Mirror one with `bolagetdb sync --store <siteId>`.
+
+**A release is not the same as a web launch.** Limited releases land weekly,
+almost always Thursday or Friday, and are announced before they happen — so
+"what drops on Friday" is answerable in advance, which is worth volunteering
+when someone is hunting something scarce. But web launches are allocation drops
+applied for online, not bottles to queue for. Never send someone to a shop for
+one.
 
 **Confirm identity before claiming a match.** Name search is unreliable in both
 directions — a search for `Sassicaia` surfaces `Grappa Sassicaia` and an

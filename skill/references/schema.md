@@ -21,6 +21,8 @@ unchanged.
 | Category | `cat1` (Vin/Öl/Sprit/Cider & blanddrycker/Alkoholfritt), `cat2` (Rött vin/Vitt vin/Ale/Whisky/…), `cat3` (style, NULL for ~62% of wine) |
 | Numbers | `vintage`, `price`, `volume_ml`, `abv`, `sek_per_litre` |
 | Availability | `availability` (`stocked`/`limited`), `availability_rank` (1/2) |
+| Assortment code | `assortment_code` — sharper than the display label: `TSE` and `TSV` both show as "Tillfälligt sortiment", `TSS` is "Säsong", `TSLS` is "Lokalt & Småskaligt", `FS`/`FSN`/`FSB` are "Fast sortiment" |
+| Release | `launch_date` (often in the **future**), `sell_start_time` (usually `10:00:00`), `is_news`, `is_web_launch` |
 | Dietary | `is_organic`, `is_vegan`, `is_natural`, `is_gluten_free`, `is_kosher` |
 | Taste clocks 0–12 | `clock_body`, `clock_tannin`, `clock_sweetness`, `clock_bitter`, `clock_fruitacid`, `clock_smokiness` |
 | Text | `taste`, `color`, `usage`, `packaging` |
@@ -142,6 +144,31 @@ ORDER BY p.clock_body DESC, p.price LIMIT 5;
 
 List covered stores with
 `SELECT * FROM store` — anything not listed is simply not mirrored.
+
+### What is being released soon
+
+Limited products are listed weekly, almost always Thursday or Friday, and are
+**announced before they happen** — the snapshot carries products whose launch
+date is still in the future. That is the one question Systembolaget's own site
+cannot answer ahead of time, and it matters because limited releases sell while
+stocks last and are not restocked.
+
+```sql
+SELECT substr(launch_date,1,10) AS launch, sell_start_time, assortment_code,
+       is_web_launch, full_name, producer, price
+FROM product
+WHERE substr(launch_date,1,10) >= date('now')
+  AND assortment_code LIKE 'TS%'
+ORDER BY launch, price DESC LIMIT 20;
+```
+
+`is_web_launch = 1` marks an allocation drop applied for **online**, not a
+bottle to queue for in a shop — the rarest wines arrive this way. Filter it out
+when someone asks what they can walk in and buy, and never tell them to visit a
+shop on the day for one.
+
+Check the snapshot date first: a launch date "in the future" is only in the
+future relative to when the snapshot was taken.
 
 ### Find a specific bottle
 

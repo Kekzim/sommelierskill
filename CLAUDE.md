@@ -238,17 +238,34 @@ The upstream CLI in `systembolaget-api` had `--sort-by` silently dropped
 lost ~23% of products while reporting a plausible row count. A one-line fix
 exists in that repo's working tree, uncommitted and unpushed.
 
-## Agent-facing skills
+## Agent-facing surfaces
 
-There are two, targeting different runtimes. Keep both in step when the schema
-changes.
+Three of them now, and they are not interchangeable. Keep the method in step
+across the two skills when anything changes; keep the schema in step across all
+three.
 
-`skill-claude-code/` — **Claude Code**. Drives the full local database through
-`bolagetdb query`, and does live stock checks against the Systembolaget API.
+`mcp-server/` — **the MCP server**. Nine tools over the full mirror plus a live
+stock check, TypeScript, streamable HTTP, containerised alongside the Go sync
+job (`compose.yaml`). This is the data-access surface: it is what the Claude
+Code skill drives when it is configured, and it is reachable only where the
+server is — inside the network, over the VPN. See `mcp-server/README.md`.
+
+The tools describe their own parameters. **Do not restate them in a skill** —
+that duplication is exactly how the two skills drifted apart the first time. A
+skill carries routing and judgement; the tools carry their own interface.
+
+`skill-claude-code/` — **Claude Code**. The judgement layer over whichever data
+access is available.
 
   skill-claude-code/SKILL.md                  persona, method, rules, tone
-  skill-claude-code/references/schema.md      full schema, live stock, recipes
+  skill-claude-code/references/tools.md       which MCP tool, and when
+  skill-claude-code/references/schema.md      schema, for raw SQL and the fallback
   skill-claude-code/references/preferences.md -> ../../skill/references/preferences.md
+
+It drives the `systembolaget_*` MCP tools when they are configured and falls
+back to `bolagetdb query` against the local mirror when they are not — the
+method is identical either way, which is the point. The fallback matters
+because the server is unreachable off the VPN.
 
 It is installed **user-wide**, not per-project, by a symlink:
 

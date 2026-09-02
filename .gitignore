@@ -16,3 +16,6 @@
 
 # Local compose configuration (holds the auth token).
 .env
+
+# MCP client config: holds the bearer token. Commit .mcp.json.example instead.
+.mcp.json
