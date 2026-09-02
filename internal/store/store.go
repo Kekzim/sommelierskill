@@ -74,8 +74,8 @@ INSERT INTO product (
   clock_body, clock_tannin, clock_sweetness, clock_bitter, clock_fruitacid,
   clock_smokiness, clock_casque, casque_text,
   taste, color, usage,
-  launch_date, sell_start_time, is_news, assortment_code, raw, synced_at
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  launch_date, sell_start_time, is_news, is_web_launch, assortment_code, raw, synced_at
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(product_id) DO UPDATE SET
   product_number=excluded.product_number, name=excluded.name, name_thin=excluded.name_thin,
   full_name=excluded.full_name, producer=excluded.producer, supplier=excluded.supplier,
@@ -94,7 +94,8 @@ ON CONFLICT(product_id) DO UPDATE SET
   clock_casque=excluded.clock_casque, casque_text=excluded.casque_text,
   taste=excluded.taste, color=excluded.color, usage=excluded.usage,
   launch_date=excluded.launch_date, sell_start_time=excluded.sell_start_time,
-  is_news=excluded.is_news, assortment_code=excluded.assortment_code,
+  is_news=excluded.is_news, is_web_launch=excluded.is_web_launch,
+  assortment_code=excluded.assortment_code,
   raw=excluded.raw, synced_at=excluded.synced_at`
 
 // Writer batches product upserts inside a single transaction.
@@ -159,7 +160,7 @@ func (w *Writer) Put(p normalize.Product) error {
 		p.ClockBody, p.ClockTannin, p.ClockSweetness, p.ClockBitter, p.ClockFruitacid,
 		p.ClockSmokiness, p.ClockCasque, nullIfEmpty(p.CasqueText),
 		nullIfEmpty(p.Taste), nullIfEmpty(p.Color), nullIfEmpty(p.Usage),
-		nullIfEmpty(p.LaunchDate), nullIfEmpty(p.SellStartTime), p.IsNews,
+		nullIfEmpty(p.LaunchDate), nullIfEmpty(p.SellStartTime), p.IsNews, p.IsWebLaunch,
 		nullIfEmpty(p.AssortmentCode), p.Raw, ts,
 	); err != nil {
 		return fmt.Errorf("upsert product %s: %w", p.ProductID, err)
@@ -366,7 +367,8 @@ CREATE TABLE product (
   clock_body INTEGER, clock_tannin INTEGER, clock_sweetness INTEGER,
   clock_bitter INTEGER, clock_fruitacid INTEGER, clock_smokiness INTEGER,
   packaging TEXT, taste TEXT, color TEXT, usage TEXT,
-  launch_date TEXT, sell_start_time TEXT, is_news INTEGER, assortment_code TEXT
+  launch_date TEXT, sell_start_time TEXT, is_news INTEGER, is_web_launch INTEGER,
+  assortment_code TEXT
 );
 CREATE TABLE product_grape (product_id TEXT, grape TEXT, raw_name TEXT);
 CREATE TABLE product_pairing (product_id TEXT, pairing TEXT);
@@ -417,7 +419,7 @@ func (d *DB) ExportSlim(ctx context.Context, path string, maxRank int) (int, err
 		   is_natural, is_gluten_free, is_kosher, clock_body, clock_tannin,
 		   clock_sweetness, clock_bitter, clock_fruitacid, clock_smokiness,
 		   packaging, taste, color, usage,
-		   launch_date, sell_start_time, is_news, assortment_code
+		   launch_date, sell_start_time, is_news, is_web_launch, assortment_code
 		 FROM main.product WHERE availability_rank <= ? AND is_discontinued = 0`,
 		`INSERT INTO slim.product_grape SELECT g.* FROM main.product_grape g
 		 JOIN slim.product p ON p.product_id = g.product_id`,

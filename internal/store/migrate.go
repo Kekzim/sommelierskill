@@ -30,6 +30,7 @@ var addedColumns = []addedColumn{
 	{"product", "sell_start_time", "TEXT", `NULLIF(json_extract(raw,'$.sellStartTime'),'')`},
 	{"product", "is_news", "INTEGER NOT NULL DEFAULT 0", `COALESCE(json_extract(raw,'$.isNews'),0)`},
 	{"product", "assortment_code", "TEXT", `NULLIF(json_extract(raw,'$.assortment'),'')`},
+	{"product", "is_web_launch", "INTEGER NOT NULL DEFAULT 0", `COALESCE(json_extract(raw,'$.isWebLaunch'),0)`},
 }
 
 // migrate brings an existing database up to the current schema. It is

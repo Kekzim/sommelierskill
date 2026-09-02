@@ -142,6 +142,7 @@ type Product struct {
 	LaunchDate    string
 	SellStartTime string
 	IsNews        bool
+	IsWebLaunch   bool
 	// AssortmentCode is the short code behind AssortmentText: FS (fast), TSE/TSS/
 	// TST/TSV (the temporary sub-types), and so on. Narrower than AssortmentText.
 	AssortmentCode string
@@ -214,6 +215,7 @@ func FromAPI(p systembolaget.Product, raw string, syncedAt time.Time) Product {
 		LaunchDate:     str(p, "productLaunchDate"),
 		SellStartTime:  str(p, "sellStartTime"),
 		IsNews:         boolean(p, "isNews"),
+		IsWebLaunch:    boolean(p, "isWebLaunch"),
 		AssortmentCode: str(p, "assortment"),
 
 		Raw:      raw,

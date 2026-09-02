@@ -89,6 +89,11 @@ CREATE TABLE IF NOT EXISTS product (
   launch_date           TEXT,
   sell_start_time       TEXT,
   is_news               INTEGER NOT NULL DEFAULT 0,
+  -- Web launches ("Webblanseringar") are allocation drops applied for online,
+  -- not bottles to queue for in a shop. Their assortment_text is unknown to the
+  -- availability map, so they fall back to order_only -- correct, but it hides
+  -- that they are the most sought-after releases.
+  is_web_launch         INTEGER NOT NULL DEFAULT 0,
   assortment_code       TEXT,
 
   raw                   TEXT NOT NULL,      -- verbatim API JSON
