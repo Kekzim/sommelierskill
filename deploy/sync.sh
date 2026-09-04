@@ -42,6 +42,35 @@ assert_readonly_safe() {
   fi
 }
 
+# A published database must actually contain the assortment. The journal-mode
+# assertion only proves the file is openable -- a sync that failed before
+# fetching anything still produces a valid, empty database, and publishing that
+# takes the server down just as thoroughly as a corrupt one.
+assert_has_products() {
+  n=$(bolagetdb --db "$1" query --format csv "SELECT count(*) FROM product" 2>/dev/null | tail -1)
+  case "$n" in
+    ''|*[!0-9]*) log "FATAL: could not count products in $1"; return 1 ;;
+  esac
+  if [ "$n" -lt 1000 ]; then
+    log "FATAL: $1 holds only $n products; refusing to publish."
+    log "  The sync did not complete. The previous mirror is left in place."
+    return 1
+  fi
+  # A collapse relative to what is already live means something went wrong even
+  # if the run reported success.
+  if [ -f "$LIVE" ]; then
+    prev=$(bolagetdb --db "$LIVE" query --format csv "SELECT count(*) FROM product" 2>/dev/null | tail -1)
+    case "$prev" in
+      ''|*[!0-9]*) prev=0 ;;
+    esac
+    if [ "$prev" -gt 0 ] && [ "$n" -lt $((prev / 2)) ]; then
+      log "FATAL: $n products vs $prev already live -- refusing to publish a collapse."
+      return 1
+    fi
+  fi
+  log "published database holds $n products"
+}
+
 run_once() {
   log "starting refresh"
 
@@ -52,7 +81,7 @@ run_once() {
   if ! touch "${DATA_DIR}/.writable" 2>/dev/null; then
     log "FATAL: ${DATA_DIR} is not writable by uid $(id -u)."
     log "  Fix: docker run --rm -v <volume>:/data alpine chown -R 10001:10001 /data"
-    exit 1
+    return 1
   fi
   rm -f "${DATA_DIR}/.writable"
 
@@ -72,16 +101,33 @@ run_once() {
     store_args="$store_args --store $s"
   done
 
+  # These are checked explicitly rather than relying on `set -e`. run_once is
+  # called from a `||` list so the shell can keep the schedule alive when a sync
+  # fails -- and POSIX disables errexit inside any command in such a list, which
+  # once let a failed sync run on and publish a database with no products in it.
+  #
+  # --no-snapshot because the JSONL archive is a development artifact: the
+  # container has nowhere writable to put it, and it would fill appdata.
   # shellcheck disable=SC2086
-  bolagetdb --db "$WORK" sync $store_args
+  if ! bolagetdb --db "$WORK" sync --no-snapshot $store_args; then
+    log "FATAL: sync failed; not publishing. The previous mirror is untouched."
+    return 1
+  fi
   # Store names and addresses come from a separate call; without it the mirror
   # knows site 1001 carries a wine but not that it is Wachtmeister.
-  bolagetdb --db "$WORK" stores
+  if ! bolagetdb --db "$WORK" stores; then
+    log "FATAL: store metadata failed; not publishing."
+    return 1
+  fi
 
   rm -f "$STAGE"
-  bolagetdb --db "$WORK" query "VACUUM INTO '${STAGE}'"
+  if ! bolagetdb --db "$WORK" query "VACUUM INTO '${STAGE}'"; then
+    log "FATAL: publishing failed."
+    return 1
+  fi
 
-  assert_readonly_safe "$STAGE" || exit 1
+  assert_readonly_safe "$STAGE" || return 1
+  assert_has_products "$STAGE" || return 1
 
   # Atomic within the volume: a reader sees the old file or the new one, never a
   # partial write. The server notices the inode change and reopens.

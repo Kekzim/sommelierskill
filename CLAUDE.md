@@ -189,6 +189,21 @@ recovers it from `raw`. The backfill is what makes this cheap — the verbatim
 JSON is already stored, so a new column is populated for all ~27k rows in about
 three seconds instead of a 25-minute resync.
 
+**`set -e` does not apply inside a function called from a `||` list.** POSIX
+disables errexit for any command that is part of a `&&`/`||` list, and that
+includes a shell function. `deploy/sync.sh` calls `run_once || log "..."` so a
+failed first sync does not kill the scheduler — which silently meant *every*
+failure inside `run_once` was ignored. A sync that died before fetching anything
+still ran the store pass and published a database with no products in it. Every
+step in `run_once` that must not be skipped therefore checks itself with
+`if ! ...; then return 1; fi` rather than trusting errexit.
+
+**A published database is checked for contents, not just format.**
+`assert_readonly_safe` proves the file is openable; `assert_has_products` proves
+the sync actually fetched something, and refuses a collapse to under half of
+what is already live. The first guard would happily have published the empty
+database that the errexit bug produced.
+
 **Read commands must never go through `Open`.** `Open` sets
 `journal_mode(WAL)` in its DSN, so any command routed through it rewrites the
 header of whatever it touches. SQLite cannot open a WAL database read-only — it
