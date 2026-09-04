@@ -119,6 +119,8 @@ connection usually means `BIND_ADDR` is wrong.
 > full sync has completed in-container and published without the header
 > assertion firing. Do not open anything to the internet until both hold.
 
+Once that holds, `TUNNEL.md` covers exposing it to Anthropic and nothing else.
+
 ---
 
 ## Updating later
