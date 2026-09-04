@@ -23,11 +23,21 @@ var schemaSQL string
 
 type DB struct{ db *sql.DB }
 
-// OpenExisting opens a database that must already exist.
+// OpenExisting opens a database read-only, for the commands that only read it:
+// query, stats and export.
 //
-// Open would happily create an empty one, which makes a wrong --db path look
-// like an empty assortment: "0 products" instead of an error. Read commands
-// use this so a bad path fails loudly.
+// It must not call Open. Open sets journal_mode=WAL in its DSN, which rewrites
+// the header of whatever it touches -- so a read command against a published
+// database used to convert it to WAL, and the MCP server reads that file from a
+// read-only mount where a WAL database cannot be opened at all. `query
+// "SELECT 1"` was enough to take the server down until the next publish.
+//
+// So this path opens read-only and applies no pragmas beyond a busy timeout, no
+// migration and no schema. VACUUM INTO still works on a read-only connection,
+// which the publish step depends on.
+//
+// It also refuses to create a database. Open would happily make an empty one,
+// turning a wrong --db path into "0 products" instead of an error.
 func OpenExisting(path string) (*DB, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -35,10 +45,22 @@ func OpenExisting(path string) (*DB, error) {
 		}
 		return nil, err
 	}
-	return Open(path)
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(10000)")
+	if err != nil {
+		return nil, err
+	}
+	// Fail here rather than at the first query, so an unreadable file is
+	// reported by the command that opened it.
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("opening %s read-only: %w", path, err)
+	}
+	return &DB{db: db}, nil
 }
 
 // Open opens (creating if needed) the database at path and applies the schema.
+// Only the commands that build the mirror use it: sync and stores. Read
+// commands use OpenExisting -- that distinction is load-bearing, not tidiness.
 func Open(path string) (*DB, error) {
 	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)")
 	if err != nil {

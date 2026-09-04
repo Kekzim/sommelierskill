@@ -189,14 +189,19 @@ recovers it from `raw`. The backfill is what makes this cheap — the verbatim
 JSON is already stored, so a new column is populated for all ~27k rows in about
 three seconds instead of a 25-minute resync.
 
-**`Open` converts any database it touches to WAL.** The DSN sets
-`journal_mode(WAL)`, so *any* command — `bolagetdb --db X query "SELECT 1"`
-included — rewrites X's header. That matters because SQLite cannot open a
-WAL database read-only: it wants to create a `-shm` sidecar and fails with
-"attempt to write a readonly database". The Docker deployment therefore
-publishes with `VACUUM INTO` (which writes rollback-journal mode) and never
-points `bolagetdb` at the published file. Verifying a published database by
-querying it is exactly the move that breaks it.
+**Read commands must never go through `Open`.** `Open` sets
+`journal_mode(WAL)` in its DSN, so any command routed through it rewrites the
+header of whatever it touches. SQLite cannot open a WAL database read-only — it
+wants to create a `-shm` sidecar and fails with "attempt to write a readonly
+database" — and the MCP server reads the published file from a read-only mount,
+so `query "SELECT 1"` used to take the server down until the next publish.
+
+`OpenExisting` is therefore the read path: read-only, no pragmas beyond a busy
+timeout, no migration, no schema. `query`, `stats` and `export` use it; only
+`sync` and `stores` use `Open`. `VACUUM INTO` still works on a read-only
+connection, which is what lets the publish step run through `query`.
+`TestReadingDoesNotConvertToWAL` is the regression test — it fails with the
+exact diagnostic if a read path is ever routed back through `Open`.
 
 **`migrate` runs before `schema.sql`, not after.** The schema creates indexes
 over columns that migration is responsible for adding, so applying it first to

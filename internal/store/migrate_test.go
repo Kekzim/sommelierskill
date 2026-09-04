@@ -2,6 +2,8 @@ package store
 
 import (
 	"database/sql"
+	"io"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -151,5 +153,81 @@ func TestAbsentReleaseTextIsNull(t *testing.T) {
 	}
 	if nulls != 3 {
 		t.Errorf("%d of 3 absent release fields stored as NULL; the rest are empty strings", nulls)
+	}
+}
+
+// journalMode reads byte 18 of the SQLite header: 1 = rollback journal, 2 = WAL.
+func journalMode(t *testing.T, path string) int {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open header: %v", err)
+	}
+	defer f.Close()
+	head := make([]byte, 20)
+	if _, err := io.ReadFull(f, head); err != nil {
+		t.Fatalf("read header: %v", err)
+	}
+	return int(head[18])
+}
+
+// The published database must survive being read.
+//
+// Open sets journal_mode=WAL in its DSN, so any command that went through it
+// rewrote the header of whatever it touched. The MCP server reads the published
+// file from a read-only mount, and SQLite cannot open a WAL database read-only
+// at all -- so `query "SELECT 1"` used to take the server down until the next
+// publish. This is the regression test for that.
+func TestReadingDoesNotConvertToWAL(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	published := filepath.Join(dir, "published.db")
+
+	// Build a mirror the way sync does, then publish the way sync.sh does.
+	db := openAt(t, source)
+	put(t, db, sample())
+	if _, err := db.SQL().Exec(`VACUUM INTO ?`, published); err != nil {
+		t.Fatalf("publishing: %v", err)
+	}
+	db.Close()
+
+	if got := journalMode(t, published); got != 1 {
+		t.Fatalf("published database is journal mode %d, want 1 (rollback); VACUUM INTO should not produce WAL", got)
+	}
+
+	// Read it the way `query` and `stats` do.
+	ro, err := OpenExisting(published)
+	if err != nil {
+		t.Fatalf("OpenExisting: %v", err)
+	}
+	var n int
+	if err := ro.SQL().QueryRow(`SELECT count(*) FROM product`).Scan(&n); err != nil {
+		t.Fatalf("reading: %v", err)
+	}
+	// VACUUM INTO has to keep working on a read-only connection: the publish
+	// step in sync.sh runs it through the query command.
+	if _, err := ro.SQL().Exec(`VACUUM INTO ?`, filepath.Join(dir, "again.db")); err != nil {
+		t.Fatalf("VACUUM INTO on a read-only connection: %v", err)
+	}
+	ro.Close()
+
+	if got := journalMode(t, published); got != 1 {
+		t.Errorf("reading the published database converted it to journal mode %d; "+
+			"the MCP server can no longer open it from a read-only mount", got)
+	}
+}
+
+// The write path still has to do its job: migrate, apply the schema, and use WAL.
+func TestWritePathStillMigrates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "w.db")
+	db := openAt(t, path)
+	defer db.Close()
+	var n int
+	if err := db.SQL().QueryRow(
+		`SELECT count(*) FROM pragma_table_info('product') WHERE name = 'is_web_launch'`).Scan(&n); err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if n != 1 {
+		t.Error("write path did not apply the schema")
 	}
 }
