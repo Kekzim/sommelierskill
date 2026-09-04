@@ -1,5 +1,9 @@
 name: sommelier
 
+# This file BUILDS the images. It is the development and release-build compose
+# file; the NAS never uses it. To deploy, build and push from here, then run
+# deploy/unraid/compose.yaml on the server, which only pulls.
+
 services:
   # Refreshes the mirror on a schedule and publishes a read-only-safe copy.
   # Writes the volume; nothing else does.
@@ -7,7 +11,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: bolagetdb-sync:latest
+    image: ghcr.io/kekzim/bolagetdb-sync:latest
     restart: unless-stopped
     environment:
       TZ: Europe/Stockholm
@@ -39,7 +43,7 @@ services:
     build:
       context: ./mcp-server
       dockerfile: Dockerfile
-    image: systembolaget-mcp-server:latest
+    image: ghcr.io/kekzim/systembolaget-mcp-server:latest
     restart: unless-stopped
     environment:
       # Inside the container it binds all interfaces; exposure is controlled by

@@ -19,3 +19,6 @@
 
 # MCP client config: holds the bearer token. Commit .mcp.json.example instead.
 .mcp.json
+
+# Filled-in deployment env (holds the auth token).
+deploy/unraid/.env

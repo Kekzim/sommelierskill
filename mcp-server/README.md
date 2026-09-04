@@ -171,6 +171,17 @@ an undocumented API for nothing. Run one on demand with:
 docker compose exec sync /usr/local/bin/sync.sh once
 ```
 
+## Deploying to Unraid
+
+`deploy/unraid/` holds a standalone compose file that pulls pre-built images from
+GHCR, plus `RUNBOOK.md` with the exact steps. The NAS never builds: images are
+built and pushed from a workstation with the repo's own `compose.yaml`, and only
+`compose.yaml` and `.env` go on the server.
+
+Two things bite if skipped, both documented in the runbook: the appdata directory
+must be owned by uid 10001 before the first run, and the published database must
+be produced with `VACUUM INTO` rather than copied.
+
 ## Connecting a client
 
 The server speaks streamable HTTP at `POST /mcp` and expects the bearer token in
