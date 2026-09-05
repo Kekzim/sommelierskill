@@ -56,18 +56,28 @@ function authorise(req: Request, res: Response, next: NextFunction): void {
 }
 
 /**
- * DNS rebinding protection: a browser on the same network could otherwise be
- * made to POST here from a hostile page. Only same-origin or explicitly allowed
- * origins are accepted; requests with no Origin (ordinary MCP clients) pass.
+ * DNS rebinding protection, opt-in via ALLOWED_ORIGINS.
+ *
+ * It must be opt-in, not opt-out. Enforcing an empty allowlist rejects every
+ * request that carries an Origin header at all -- which is what Claude's
+ * connector sends, so the server answered 403 and the client reported it as
+ * "couldn't reach the server". Ordinary curl sends no Origin, so the fault only
+ * appeared against a real client.
+ *
+ * The threat this guards against is a browser on the same machine being made to
+ * POST to a loopback-bound server from a hostile page. That is worth defending
+ * when the server listens on localhost; it is not the deployment behind a
+ * tunnel, an IP allowlist and a bearer token. Set ALLOWED_ORIGINS when the
+ * former applies.
  */
 function checkOrigin(req: Request, res: Response, next: NextFunction): void {
-  const origin = req.header("origin");
-  if (!origin) return next();
   const allowed = (process.env.ALLOWED_ORIGINS ?? "").split(",").filter(Boolean);
-  if (allowed.includes(origin)) return next();
+  if (!allowed.length) return next();
+  const origin = req.header("origin");
+  if (!origin || allowed.includes(origin)) return next();
   res.status(403).json({
     jsonrpc: "2.0",
-    error: { code: -32001, message: "Forbidden origin" },
+    error: { code: -32001, message: `Forbidden origin: ${origin}` },
     id: null,
   });
 }

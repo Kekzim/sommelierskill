@@ -22,7 +22,7 @@ npm install && npm run build && npm start
 | `PORT` | `8848` | |
 | `MCP_AUTH_TOKEN` | *unset* | Bearer token. **Unset means no auth at all.** |
 | `SYSTEMBOLAGET_API_KEY` | *unset* | Enables live stock checks; everything else works without it |
-| `ALLOWED_ORIGINS` | *unset* | Comma-separated origins allowed to send an `Origin` header |
+| `ALLOWED_ORIGINS` | *unset* | Comma-separated origins to allow. **Unset means no origin checking**, which is correct behind a tunnel; set it only for a loopback-bound server a browser could reach |
 
 `GET /health` reports the product count and the resolved database path. The MCP
 endpoint is `POST /mcp`.
@@ -100,6 +100,14 @@ most 10 products per call. This is an undocumented API.
 `readOnly`, only a single `SELECT`/`WITH` statement is accepted, and a query
 without its own `LIMIT` is capped. The connection is the real guarantee; the
 validation exists to give a clear error rather than a confusing SQLite one.
+
+**Origin checking is opt-in.** It was originally opt-out, and an empty
+allowlist rejected every request carrying an `Origin` header — which Claude's
+connector sends, so the server answered 403 and the client reported it as
+"couldn't reach the server". `curl` sends no `Origin`, so the fault was
+invisible until a real client tried. DNS-rebinding protection is worth having
+for a server bound to localhost; behind a tunnel and an IP allowlist it only
+produces false negatives.
 
 **Auth is on even inside the network.** The server is reachable only over the
 VPN, but a private network is not an authorisation boundary. Set
