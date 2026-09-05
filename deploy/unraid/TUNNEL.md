@@ -82,8 +82,10 @@ means the token does not match the one in `.env`.
 ## 5. Restrict it to Anthropic
 
 Anthropic's outbound requests come from **`160.79.104.0/21`**, and that is the
-only published outbound range. In the Cloudflare dashboard for your domain:
-**Security → WAF → Custom rules → Create rule**.
+only published outbound range — there is no published outbound IPv6. In the
+Cloudflare dashboard for your domain: **Security → Security Rules → Custom
+rules → Create rule**. (Older documentation, including Cloudflare's own, calls
+this section **WAF**; it was renamed.)
 
 | Field | Value |
 |---|---|
@@ -109,6 +111,33 @@ combination here.
 **Do not remove the LAN port binding.** Claude Code on your workstation talks to
 `192.168.10.109:8848` directly and never touches the public path. Two routes to
 one server, each restricted to whoever needs it.
+
+## If the DNS record refuses to publish
+
+This happened on the first deployment and cost an hour, so it is worth knowing.
+The tunnel's public hostname was configured correctly, the CNAME to
+`<tunnel-id>.cfargotunnel.com` existed and was proxied, and Cloudflare's own API
+returned it — yet both of the zone's nameservers answered `NXDOMAIN` for the
+hostname, for over an hour.
+
+The record was in Cloudflare's control plane but was never pushed to the
+nameservers that serve the zone. Nothing about the configuration was wrong.
+
+**What unstuck it:** adding an unrelated throwaway record (an `A` record for
+`test` pointing at `192.0.2.1`, DNS-only) forced a zone republish, and both the
+new record and the stuck tunnel CNAME appeared within seconds. Delete the
+throwaway afterwards.
+
+Before reaching for that, confirm the record really is absent rather than
+cached, by asking the zone's own nameservers:
+
+```bash
+dig sommelier.example.com @<your-zone-nameserver> +tries=1
+```
+
+An authoritative `NXDOMAIN` (the `aa` flag is set) means the zone genuinely is
+not serving it. A proxied tunnel record, once published, resolves to Cloudflare
+anycast addresses — `104.x` or `172.67.x` — never to your origin.
 
 ## If the connector cannot reach the server
 
