@@ -94,6 +94,27 @@ app.get("/health", (_req, res) => {
   }
 });
 
+/**
+ * Streamable HTTP defines GET (open the server-initiated stream) and DELETE
+ * (end a session) alongside POST. This server is stateless and offers neither,
+ * and the correct answer for an unsupported verb on a real endpoint is 405 --
+ * not 404, which says the endpoint does not exist at all and reads to a client
+ * as "there is no server here".
+ */
+function methodNotAllowed(_req: Request, res: Response): void {
+  res.status(405).set("Allow", "POST").json({
+    jsonrpc: "2.0",
+    error: {
+      code: -32000,
+      message: "Method not allowed. This server is stateless: use POST for all MCP requests.",
+    },
+    id: null,
+  });
+}
+
+app.get("/mcp", methodNotAllowed);
+app.delete("/mcp", methodNotAllowed);
+
 app.post("/mcp", checkOrigin, authorise, async (req, res) => {
   // A fresh transport and server per request: stateless JSON, so concurrent
   // requests cannot collide on request ids.
