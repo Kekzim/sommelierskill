@@ -40,14 +40,20 @@ function buildServer(): McpServer {
  */
 function authorise(req: Request, res: Response, next: NextFunction): void {
   if (!authToken) return next();
-  const header = req.header("authorization") ?? "";
-  const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
+  // Accept the token with or without the "Bearer " scheme. Claude's connector
+  // sends the header value exactly as an administrator typed it and adds no
+  // scheme, so a value entered as the bare token arrives without the prefix --
+  // and the resulting 401 surfaces to the user as "couldn't reach the server",
+  // which sends you hunting through DNS, firewalls and tunnels for two days.
+  // Being strict here buys nothing: the token still has to match.
+  const header = (req.header("authorization") ?? "").trim();
+  const presented = header.startsWith("Bearer ") ? header.slice(7).trim() : header;
   const a = Buffer.from(presented);
   const b = Buffer.from(authToken);
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
     res.status(401).json({
       jsonrpc: "2.0",
-      error: { code: -32001, message: "Unauthorized: send Authorization: Bearer <token>" },
+      error: { code: -32001, message: "Unauthorized: send the token in an Authorization header, with or without a 'Bearer ' prefix." },
       id: null,
     });
     return;

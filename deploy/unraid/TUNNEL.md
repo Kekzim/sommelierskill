@@ -139,19 +139,57 @@ An authoritative `NXDOMAIN` (the `aa` flag is set) means the zone genuinely is
 not serving it. A proxied tunnel record, once published, resolves to Cloudflare
 anycast addresses — `104.x` or `172.67.x` — never to your origin.
 
-## If the connector cannot reach the server
+## "Couldn't reach the MCP server"
 
-Phase 03 registers the connector; if it fails with "couldn't reach the MCP
-server", work backwards:
+Claude reports **every** failure with this one message, whatever the actual
+cause — a 401, a 404, a 502, a blocked request. It reads like a network problem
+and usually is not. The first deployment lost two evenings to it.
 
-1. Disable the WAF rule and try the connector again. If it now works, the rule
-   is the problem — check the hostname in the expression matches exactly.
-2. The published range is IPv4 only. If your hostname also answers on IPv6 and
-   a request arrives over it, `ip.src` will not be in the `/21` and the rule
-   will block it. The symptom is intermittent or total failure with the rule on
-   and success with it off.
-3. Check the tunnel is still **Healthy** and `docker logs sommelier-tunnel` for
-   connection errors.
+**Get the evidence before theorising.** Run the connector with tunnel debug
+logging on and read what actually arrived:
+
+```bash
+docker run -d --name sommelier-tunnel ... -e TUNNEL_LOGLEVEL=debug ...
+docker logs --since 2m sommelier-tunnel | grep -E 'Cf-Connecting-Ip|200 OK|401|404|502'
+```
+
+Each proxied request is logged with its full headers and the status returned.
+Anthropic's requests arrive from `160.79.x`, with `User-Agent: python-httpx` and
+an `Mcp-Protocol-Version` header. Yours arrive from your own address. Comparing
+the two lines is what finally solved it, and would have solved it on the first
+evening.
+
+Note that debug logging writes the `Authorization` header in plaintext. Turn it
+off afterwards, and rotate the token if the logs have been shared.
+
+The causes actually hit, in the order they bit:
+
+1. **The bearer token sent without its `Bearer ` prefix.** Claude sends the
+   header value exactly as typed and adds no scheme, so a value entered as the
+   bare token arrives as `Authorization: <token>` and gets a 401. This was the
+   real cause. The server now accepts both forms.
+2. **QUIC blocked on the local network.** `cloudflared` defaults to UDP 7844 and
+   fails with `control stream encountered a failure while serving`. It is
+   supposed to fall back to HTTP/2 and did not. Set
+   `TUNNEL_TRANSPORT_PROTOCOL=http2`.
+3. **The hostname route silently not saved.** Creating it fails if a DNS record
+   of that name already exists, and the tunnel is then left with no ingress —
+   `No ingress rules were defined ... will return 503`. Delete the DNS record
+   first and let the route create it.
+4. **The tunnel ID used as the tunnel token.** The ID is a UUID and belongs in
+   the CNAME target; the token is a long `eyJ...` string from the connector
+   install screen. Wrong one gives `Provided Tunnel token is not valid`; a stale
+   one gives `Unauthorized: Invalid tunnel secret`.
+5. **The origin check rejecting any `Origin` header** and **`GET /mcp`
+   answering 404 instead of 405** — both real server bugs, both fixed, neither
+   the actual cause. `curl` sends no `Origin` and only POSTs, which is why they
+   stayed invisible until a real client tried.
+
+Cloudflare's **Security Events** shows whether a request was blocked
+(`Mitigation: Not mitigated` means it passed). If Anthropic's requests appear
+there as passed but never reach the tunnel logs, the problem is between
+Cloudflare and the tunnel; if they reach the tunnel, the status in the log tells
+you the rest.
 
 ## Gate for Phase 03
 
