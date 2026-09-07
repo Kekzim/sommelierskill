@@ -11,6 +11,40 @@ const READ_ONLY = {
   openWorldHint: false,
 } as const;
 
+/**
+ * The columns the `query` tool advertises, read from the mirror itself.
+ *
+ * This list used to be typed out here, which is the same duplication the Go
+ * side removed by generating everything from one declaration -- and it had
+ * already drifted: `is_web_launch` was missing, so an agent writing SQL had no
+ * way to know web allocations could be told apart from shop releases.
+ *
+ * The database is the artefact both languages share, so it is the thing to ask.
+ * `raw` is left out deliberately: it is the verbatim API JSON for every row and
+ * selecting it would blow the response budget on one product.
+ */
+const FALLBACK_PRODUCT_COLUMNS =
+  "product_id, full_name, name, producer, country, cat1, cat2, cat3, vintage, " +
+  "price, volume_ml, abv, sek_per_litre, availability, availability_rank, " +
+  "assortment_code, launch_date, sell_start_time, is_news, is_web_launch";
+
+function productColumnList(db: Mirror): string {
+  try {
+    const cols = db.all<{ name: string }>(
+      // xinfo, not info: table_info hides generated columns, and sek_per_litre
+      // is one -- the very column this description tells an agent to compare
+      // value with.
+      `SELECT name FROM pragma_table_xinfo('product') ORDER BY cid`,
+    );
+    const usable = cols.map((c) => c.name).filter((n) => n !== "raw");
+    if (usable.length > 0) return usable.join(", ");
+  } catch {
+    // The server starts without a mirror on purpose and reports that through
+    // /health. A tool description is no place to fail over it.
+  }
+  return FALLBACK_PRODUCT_COLUMNS;
+}
+
 export function registerMetaTools(server: McpServer, db: Mirror): void {
   server.registerTool(
     "systembolaget_data_freshness",
@@ -86,7 +120,8 @@ Examples:
 The whole point of this mirror is that Systembolaget's own API is a product search rather than a query engine: no aggregation, no boolean logic, no derived sorting. This tool is that escape hatch. Prefer the purpose-built tools when they fit; reach for this to count, group or correlate.
 
 Tables:
-  - product: product_id, product_number, full_name, name, producer, supplier, country, origin1, origin2, cat1, cat2, cat3, vintage, price, volume_ml, abv, sugar_g_per_100ml, sek_per_litre, sek_per_cl_alcohol, availability, availability_rank, assortment_text, assortment_code, launch_date, sell_start_time, is_news, is_discontinued, is_organic, is_vegan, is_natural, is_gluten_free, is_kosher, clock_body, clock_tannin, clock_sweetness, clock_bitter, clock_fruitacid, clock_smokiness, taste, color, usage
+  - product: ${productColumnList(db)}
+    plus 'raw', the verbatim API JSON for that product -- never select it in a list query
   - product_grape (product_id, grape, raw_name) -- grape is canonical, so 'Syrah' also finds 'Shiraz'
   - product_pairing (product_id, pairing)
   - product_fts -- FTS5 over name, producer, taste, color, usage; join on p.rowid = f.rowid

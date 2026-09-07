@@ -199,6 +199,14 @@ field and its `FromAPI` mapping are still needed, and an index still goes in
 `schema.sql` no longer holds the product table. It keeps everything that has
 only one definition: indexes, triggers, the FTS table and the other tables.
 
+The MCP server cannot import Go, so it asks the database instead: the `query`
+tool's list of selectable columns is read at startup from
+`pragma_table_xinfo('product')` (`xinfo`, not `info` -- `info` hides generated
+columns, and `sek_per_litre` is one). It falls back to a static list when there
+is no mirror to read, because the server starts without one on purpose. The
+typed-out list it replaced had already drifted: `is_web_launch` was missing, so
+an agent writing SQL had no way to tell a web allocation from a shop release.
+
 Two tests hold this together. `TestUpsertArgumentsLineUpWithColumns` reads every
 column back *by name* and compares it with the argument its value function
 produced, so a builder that lists columns in one order and arguments in another
@@ -247,6 +255,14 @@ fresh-database branch used to be for.
 
 Known open items, so a fresh session does not have to rediscover them:
 
+- **The weekly schedule has never actually fired.** The only sync on the NAS so
+  far is the manual first run of 2026-09-04, which took the build-from-scratch
+  branch. A scheduled run takes the other one -- copy the mirror, sync
+  incrementally, prune, publish, swap under a live server -- and that branch has
+  not run in a container. First firing is Friday 19:00 Europe/Stockholm.
+- **Assortment drift is measured from one interval only** (27,225 -> 27,124 over
+  ten days). Friday's run gives the second data point, which is what says
+  whether weekly is the right cadence or merely the one that was picked.
 - **The mirror may be mid-refresh.** Check with `bolagetdb stats`; if rows carry
   two `synced_at` dates, a sync was interrupted. Re-run a full sync, which will
   also prune whatever has been delisted since.
@@ -258,11 +274,6 @@ Known open items, so a fresh session does not have to rediscover them:
   gives ~71, but that misses wines advertised as `qvevri`, `anfora` or
   `macererad`, and ~3,300 white wines carry no colour description at all
   (almost all order-only). Any answer needs its uncertainty stated.
-- **The MCP server keeps its own copy of the column list**, in the `query` tool's
-  description (`mcp-server/src/tools/meta.ts`). It is prose telling an agent what
-  it may select rather than a second schema, so drift misleads rather than
-  breaks — but nothing checks it against `columns.go`. The Go side no longer
-  duplicates the schema anywhere; this is the last copy.
 
 ## Related work
 
