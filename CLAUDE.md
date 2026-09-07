@@ -214,6 +214,25 @@ is caught. `TestSnapshotCarriesEverySlimColumn` exports a snapshot and checks
 that every `slim` column arrives with the value it was stored with -- the check
 that `launch_date` never had.
 
+**The NAS deployment is `docker run`, not Compose.** Unraid ships no Compose of
+its own — it comes from the Compose Manager plugin. When that plugin went
+missing, `docker compose` became an unknown command and the `.env` beside the
+compose file was suddenly read by nothing, so editing it looked like it worked
+and did nothing at all. `deploy/unraid/run.sh` creates both containers with
+plain `docker run` and depends on no plugin. The root `compose.yaml` stays: it
+is the build file `make release` drives, and the NAS never touches it.
+
+`run.sh` *parses* `.env` rather than sourcing it. Sourcing runs it as shell, so
+an unquoted `SYNC_STORES=1001 1002` would set `SYNC_STORES=1001` and then try to
+execute `1002`. Parsing `KEY=VALUE` literally keeps Compose's semantics, which
+means a `.env` written for the old deployment still works untouched.
+
+**The sync schedule is read only when the container is created.** `sync.sh`
+writes the crontab at startup from `$CRON_SCHEDULE`, so changing `.env` and
+restarting does nothing — the container must be recreated (`./run.sh sync`).
+This is the single most likely way to believe a schedule changed when it did
+not.
+
 **`set -e` does not apply inside a function called from a `||` list.** POSIX
 disables errexit for any command that is part of a `&&`/`||` list, and that
 includes a shell function. `deploy/sync.sh` calls `run_once || log "..."` so a
@@ -291,7 +310,8 @@ three.
 
 `mcp-server/` — **the MCP server**. Nine tools over the full mirror plus a live
 stock check, TypeScript, streamable HTTP, containerised alongside the Go sync
-job (`compose.yaml`). This is the data-access surface: it is what the Claude
+job. The root `compose.yaml` only *builds* those two images; the NAS runs them
+with `deploy/unraid/run.sh`. This is the data-access surface: it is what the Claude
 Code skill drives when it is configured, and it is reachable only where the
 server is — inside the network, over the VPN. See `mcp-server/README.md`.
 

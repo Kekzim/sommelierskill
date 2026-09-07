@@ -5,17 +5,25 @@ on the LAN. Exposing it to the internet is Phase 02 and deliberately separate �
 do not skip ahead, because the gate below is what makes that step safe.
 
 The NAS never builds anything. Images are built on a workstation, pushed to
-GHCR, and pulled here. Two files go on the server: `compose.yaml` and `.env`.
+GHCR, and pulled here. Two files go on the server: `run.sh` and `.env` beside
+it.
+
+**There is no Compose here, on purpose.** Unraid ships none; it comes from the
+Compose Manager plugin. When that plugin went missing the whole stack became
+unmanageable at once — `docker compose` was an unknown command, and the `.env`
+next to the compose file was then read by nothing, so edits to it appeared to
+work and did nothing. `run.sh` is plain `docker run` and depends on no plugin.
 
 ---
 
 ## A. On the workstation — build and push (once per release)
 
 Log in to GHCR. A GitHub personal access token with `write:packages` works as the
-password; `gh auth token` will print one if the `write:packages` scope is on it.
+password. It must be a **classic** token; fine-grained tokens do not work with
+the container registry.
 
 ```bash
-echo "$GITHUB_TOKEN" | docker login ghcr.io -u Kekzim --password-stdin
+docker login ghcr.io -u Kekzim
 ```
 
 Then cut a release. Both images get the version tag and `latest`:
@@ -55,27 +63,36 @@ it and prints the fix, but it costs you a cycle.
 
 ## C. On Unraid — configure
 
-Put `compose.yaml` and `.env` in a directory of your choosing, e.g.
-`/boot/config/plugins/compose.manager/projects/sommelier/`, or anywhere you
-prefer if you are driving compose from the terminal.
-
-Copy `.env.example` to `.env` and fill in:
+Copy `run.sh` and `.env.example` into a directory of your choosing, rename the
+latter to `.env`, and fill in:
 
 - `MCP_AUTH_TOKEN` — generate with `openssl rand -hex 32`
 - `BIND_ADDR` — the Unraid LAN address, e.g. `192.168.1.10`
+- `IMAGE_TAG` — the release from step A
 
 Leave `BIND_ADDR` off `0.0.0.0`. Until the tunnel exists, binding to the LAN
-address is what keeps this off every other interface.
+address is what keeps this off every other interface, and `run.sh` refuses
+`0.0.0.0` outright.
 
-The Docker Compose Manager plugin will run both files from the Unraid UI if you
-would rather not use the terminal. The files are identical either way.
+`.env` is parsed the way Compose parsed it — `KEY=VALUE`, quotes optional — so
+values containing spaces (`SYNC_STORES=1001 1002`, `CRON_SCHEDULE=0 19 * * 5`)
+need no quoting. It is deliberately not *sourced*: running it as shell would
+turn that first line into `SYNC_STORES=1001` followed by an attempt to execute
+`1002`.
 
 ---
 
 ## D. Start it, and watch the first sync
 
 ```bash
-docker compose pull && docker compose up -d && docker compose logs -f sync
+./run.sh
+```
+
+That pulls both images, recreates both containers, and restarts the tunnel if
+one exists. Then watch:
+
+```bash
+docker logs -f sommelier-sync
 ```
 
 With an empty data directory the first run builds the mirror from scratch:
@@ -83,10 +100,8 @@ With an empty data directory the first run builds the mirror from scratch:
 Stay on the logs for it. You are watching for the slice walk to complete
 (17 slices), then the store passes, then a line reporting the published size.
 
-This is the one path never verified end to end. Publish, atomic swap,
-permissions and the read-only mount are all proven with real data; a complete
-fetch inside a container is not. If it fails, the mirror is not corrupted — the
-prune guard refuses to delete after an incomplete run — so re-running is safe.
+If it fails, the mirror is not corrupted — the prune guard refuses to delete
+after an incomplete run — so re-running is safe.
 
 **Faster alternative:** if you already have a good mirror on the workstation, seed
 it instead of waiting. Publish a read-only-safe copy and drop it in:
@@ -104,6 +119,12 @@ and the server cannot open a WAL database read-only.
 ## E. Verify
 
 ```bash
+./run.sh status
+```
+
+Both containers up, on the tag you pinned. Then:
+
+```bash
 curl -s http://<unraid-lan-ip>:8848/health
 ```
 
@@ -116,6 +137,11 @@ curl -s -H 'Content-Type: application/json' -H 'Accept: application/json, text/e
 Nine tools come back. A `401` means the token does not match `.env`; a refused
 connection usually means `BIND_ADDR` is wrong.
 
+The `query` tool's description should list `is_web_launch` among the product
+columns. That list is built at startup from `pragma_table_xinfo('product')`, so
+its presence proves the server is reading the real mirror rather than falling
+back to a static list.
+
 > **Gate for Phase 02.** `/health` answers from another machine on the LAN, and a
 > full sync has completed in-container and published without the header
 > assertion firing. Do not open anything to the internet until both hold.
@@ -124,13 +150,12 @@ Once that holds, `TUNNEL.md` covers exposing it to Anthropic and nothing else.
 
 ---
 
-## Updating later
+## Updating to a new release
 
-Cut a release on the workstation, then on the NAS set `IMAGE_TAG` in `.env` to
-that version and:
+Set `IMAGE_TAG` in `.env`, then:
 
 ```bash
-docker compose pull && docker compose up -d
+./run.sh
 ```
 
 The mirror lives in the bind mount, so it survives image updates untouched.
@@ -138,17 +163,33 @@ The mirror lives in the bind mount, so it survives image updates untouched.
 **Pin `IMAGE_TAG`; do not track `latest`.** `latest` moves under you — a pull
 months from now can bring in a change nobody read, and nothing on the running
 box says which build it is. A pinned tag makes an upgrade a decision, and makes
-rolling one back a one-line edit. What is actually running:
+rolling one back a one-line edit followed by `./run.sh`.
+
+## Changing the schedule
+
+The crontab is written when the container starts, from `$CRON_SCHEDULE`. A
+restart does not re-read it — the container must be recreated:
 
 ```bash
-docker inspect --format '{{.Name}} {{.Config.Image}}' sommelier-sync sommelier-mcp
+./run.sh sync
 ```
+
+This is the step that bites. Editing `.env` alone changes nothing until you run
+that, and `docker restart sommelier-sync` is not enough either.
+
+To fire once at a specific time — proving the scheduled path works without
+waiting a week — use a dated expression like `CRON_SCHEDULE=0 0 8 9 *` (midnight
+on 8 September). Prefer that to `0 0 * * *`: if you forget to revert, a one-shot
+goes quiet, while a nightly keeps hammering an undocumented API every night,
+which is exactly what the weekly cadence exists to avoid.
 
 ## Running a sync on demand
 
 ```bash
-docker compose exec sync /usr/local/bin/sync.sh once
+docker exec sommelier-sync /usr/local/bin/sync.sh once
 ```
+
+Safe at any time: a failure publishes nothing and leaves the live mirror alone.
 
 ## The one thing that will break it
 

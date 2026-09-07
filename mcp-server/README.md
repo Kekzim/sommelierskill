@@ -181,10 +181,12 @@ docker compose exec sync /usr/local/bin/sync.sh once
 
 ## Deploying to Unraid
 
-`deploy/unraid/` holds a standalone compose file that pulls pre-built images from
-GHCR, plus `RUNBOOK.md` with the exact steps. The NAS never builds: images are
-built and pushed from a workstation with the repo's own `compose.yaml`, and only
-`compose.yaml` and `.env` go on the server.
+`deploy/unraid/` holds a `run.sh` that creates both containers from pre-built
+images on GHCR, so the NAS needs no source checkout, no Go and no Node. Images
+are built and pushed from a workstation with `make release`, and only `run.sh`
+and `.env` go on the server. It is plain `docker run`: Unraid's Compose comes
+from a plugin, and when that plugin went missing the stack became unmanageable
+and its `.env` was silently read by nothing.
 
 Two things bite if skipped, both documented in the runbook: the appdata directory
 must be owned by uid 10001 before the first run, and the published database must
