@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ejonsvn/bolagetdb/internal/normalize"
+	"github.com/Kekzim/sommelierskill/internal/normalize"
 )
 
 // The product table is declared once, here, and every place that has to agree

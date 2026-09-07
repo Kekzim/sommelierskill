@@ -21,8 +21,8 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/Kekzim/sommelierskill/internal/normalize"
 	"github.com/alexgustafsson/systembolaget-api/v5/systembolaget"
-	"github.com/ejonsvn/bolagetdb/internal/normalize"
 )
 
 // pageCap is the maximum number of products any single query can yield

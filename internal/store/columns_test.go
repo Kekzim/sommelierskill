@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ejonsvn/bolagetdb/internal/normalize"
+	"github.com/Kekzim/sommelierskill/internal/normalize"
 )
 
 // norm reduces a value to a comparable string, so a Go argument and whatever

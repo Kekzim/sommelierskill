@@ -20,10 +20,10 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/Kekzim/sommelierskill/internal/fetch"
+	"github.com/Kekzim/sommelierskill/internal/normalize"
+	"github.com/Kekzim/sommelierskill/internal/store"
 	"github.com/alexgustafsson/systembolaget-api/v5/systembolaget"
-	"github.com/ejonsvn/bolagetdb/internal/fetch"
-	"github.com/ejonsvn/bolagetdb/internal/normalize"
-	"github.com/ejonsvn/bolagetdb/internal/store"
 	"github.com/urfave/cli/v3"
 )
 

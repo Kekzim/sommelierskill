@@ -13,8 +13,8 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/Kekzim/sommelierskill/internal/normalize"
 	"github.com/alexgustafsson/systembolaget-api/v5/systembolaget"
-	"github.com/ejonsvn/bolagetdb/internal/normalize"
 	_ "modernc.org/sqlite"
 )
 

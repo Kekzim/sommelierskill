@@ -47,6 +47,10 @@ Karlskrona area; **0102 Fältöversten** (Stockholm) is kept from testing. Store
 assortments are opt-in per store, roughly a minute each; mirroring all ~450
 would take about 11 hours. Find ids with `bolagetdb stores --search <town>`.
 
+The module is `github.com/Kekzim/sommelierskill`, matching the repository; the
+binary and the CLI are still `bolagetdb`, which is what the package inside it
+is. The two names are not meant to converge.
+
 Go 1.21 or newer is enough — `go.mod` asks for 1.26.4 and `GOTOOLCHAIN=auto`
 fetches it. `make skill` also needs `zip`. There is no cgo and no `sqlite3`
 dependency.
@@ -246,9 +250,6 @@ Known open items, so a fresh session does not have to rediscover them:
 - **The mirror may be mid-refresh.** Check with `bolagetdb stats`; if rows carry
   two `synced_at` dates, a sync was interrupted. Re-run a full sync, which will
   also prune whatever has been delisted since.
-- **Module path is `github.com/ejonsvn/bolagetdb`** while the repo is
-  `Kekzim/sommelierskill`. Harmless locally, breaks `go get`. Mechanical to
-  change, deliberately left alone.
 - **`push.gpgsign` is per-machine.** If it is `true` globally, pushes to GitHub
   fail with "the receiving end does not support --signed push" — GitHub signs
   commits, not pushes. Fix per-repo: `git config --local push.gpgsign false`.

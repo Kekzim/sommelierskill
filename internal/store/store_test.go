@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ejonsvn/bolagetdb/internal/normalize"
+	"github.com/Kekzim/sommelierskill/internal/normalize"
 )
 
 func openTemp(t *testing.T) *DB {
