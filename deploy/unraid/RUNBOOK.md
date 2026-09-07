@@ -18,14 +18,15 @@ password; `gh auth token` will print one if the `write:packages` scope is on it.
 echo "$GITHUB_TOKEN" | docker login ghcr.io -u Kekzim --password-stdin
 ```
 
-Build and push both images:
+Then cut a release. Both images get the version tag and `latest`:
 
 ```bash
-cd /home/kazzim/repos/sommelierskill && MCP_AUTH_TOKEN=build docker compose build && docker compose push
+make release VERSION=v1.0.0
 ```
 
-`MCP_AUTH_TOKEN` is only there to satisfy interpolation during the build; it is
-not baked into anything.
+Pick the next version yourself; nothing derives it. The target warns if the
+working tree is dirty, because an image built from uncommitted changes matches
+no commit and cannot be rebuilt later.
 
 **Make the packages public**, or the NAS needs a pull credential. They contain no
 secrets — the mirror is a runtime volume, never baked into an image — so public
@@ -125,12 +126,23 @@ Once that holds, `TUNNEL.md` covers exposing it to Anthropic and nothing else.
 
 ## Updating later
 
+Cut a release on the workstation, then on the NAS set `IMAGE_TAG` in `.env` to
+that version and:
+
 ```bash
 docker compose pull && docker compose up -d
 ```
 
-The mirror lives in the bind mount, so it survives image updates untouched. Pin
-`IMAGE_TAG` in `.env` once you cut a real release rather than tracking `latest`.
+The mirror lives in the bind mount, so it survives image updates untouched.
+
+**Pin `IMAGE_TAG`; do not track `latest`.** `latest` moves under you — a pull
+months from now can bring in a change nobody read, and nothing on the running
+box says which build it is. A pinned tag makes an upgrade a decision, and makes
+rolling one back a one-line edit. What is actually running:
+
+```bash
+docker inspect --format '{{.Name}} {{.Config.Image}}' sommelier-sync sommelier-mcp
+```
 
 ## Running a sync on demand
 

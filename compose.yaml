@@ -1,8 +1,12 @@
 name: sommelier
 
 # This file BUILDS the images. It is the development and release-build compose
-# file; the NAS never uses it. To deploy, build and push from here, then run
-# deploy/unraid/compose.yaml on the server, which only pulls.
+# file; the NAS never uses it. To deploy, build and push from here with
+# `make release VERSION=vX.Y.Z`, then run deploy/unraid/compose.yaml on the
+# server, which only pulls.
+#
+# IMAGE_TAG is what `make release` sets to stamp a version onto both images. It
+# defaults to latest for local development.
 
 services:
   # Refreshes the mirror on a schedule and publishes a read-only-safe copy.
@@ -11,7 +15,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/kekzim/bolagetdb-sync:latest
+    image: ghcr.io/kekzim/bolagetdb-sync:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       TZ: Europe/Stockholm
@@ -43,7 +47,7 @@ services:
     build:
       context: ./mcp-server
       dockerfile: Dockerfile
-    image: ghcr.io/kekzim/systembolaget-mcp-server:latest
+    image: ghcr.io/kekzim/systembolaget-mcp-server:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       # Inside the container it binds all interfaces; exposure is controlled by

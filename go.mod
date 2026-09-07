@@ -1,4 +1,4 @@
-module github.com/ejonsvn/bolagetdb
+module github.com/Kekzim/sommelierskill
 
 go 1.26.4
 
