@@ -66,9 +66,15 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Migration runs first: schema.sql creates indexes over columns that
-	// migration is responsible for adding, so applying the schema to an older
-	// database would fail on a missing column before the fix could be applied.
+	// Order is load-bearing. The product table is created first so that a fresh
+	// database already has every column; migration then adds whatever an older
+	// one is missing; only then does schema.sql run, because it builds indexes
+	// over columns migration is responsible for adding and would otherwise fail
+	// on a missing column before the fix could be applied.
+	if _, err := db.Exec(createProductTable); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("creating product table: %w", err)
+	}
 	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrating schema: %w", err)
@@ -84,41 +90,6 @@ func (d *DB) Close() error { return d.db.Close() }
 
 // SQL exposes the underlying handle for ad-hoc queries.
 func (d *DB) SQL() *sql.DB { return d.db }
-
-const upsertProduct = `
-INSERT INTO product (
-  product_id, product_number, name, name_thin, full_name, producer, supplier,
-  country, origin1, origin2, cat1, cat2, cat3, category_title,
-  vintage, price, volume_ml, abv, sugar_g_per_100ml,
-  assortment_text, availability, availability_rank, is_discontinued, is_out_of_stock,
-  is_organic, is_sustainable, is_ethical, ethical_label,
-  packaging, seal, co2_impact,
-  clock_body, clock_tannin, clock_sweetness, clock_bitter, clock_fruitacid,
-  clock_smokiness, clock_casque, casque_text,
-  taste, color, usage,
-  launch_date, sell_start_time, is_news, is_web_launch, assortment_code, raw, synced_at
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-ON CONFLICT(product_id) DO UPDATE SET
-  product_number=excluded.product_number, name=excluded.name, name_thin=excluded.name_thin,
-  full_name=excluded.full_name, producer=excluded.producer, supplier=excluded.supplier,
-  country=excluded.country, origin1=excluded.origin1, origin2=excluded.origin2,
-  cat1=excluded.cat1, cat2=excluded.cat2, cat3=excluded.cat3, category_title=excluded.category_title,
-  vintage=excluded.vintage, price=excluded.price, volume_ml=excluded.volume_ml, abv=excluded.abv,
-  sugar_g_per_100ml=excluded.sugar_g_per_100ml, assortment_text=excluded.assortment_text,
-  availability=excluded.availability, availability_rank=excluded.availability_rank,
-  is_discontinued=excluded.is_discontinued, is_out_of_stock=excluded.is_out_of_stock,
-  is_organic=excluded.is_organic, is_sustainable=excluded.is_sustainable,
-  is_ethical=excluded.is_ethical, ethical_label=excluded.ethical_label,
-  packaging=excluded.packaging, seal=excluded.seal, co2_impact=excluded.co2_impact,
-  clock_body=excluded.clock_body, clock_tannin=excluded.clock_tannin,
-  clock_sweetness=excluded.clock_sweetness, clock_bitter=excluded.clock_bitter,
-  clock_fruitacid=excluded.clock_fruitacid, clock_smokiness=excluded.clock_smokiness,
-  clock_casque=excluded.clock_casque, casque_text=excluded.casque_text,
-  taste=excluded.taste, color=excluded.color, usage=excluded.usage,
-  launch_date=excluded.launch_date, sell_start_time=excluded.sell_start_time,
-  is_news=excluded.is_news, is_web_launch=excluded.is_web_launch,
-  assortment_code=excluded.assortment_code,
-  raw=excluded.raw, synced_at=excluded.synced_at`
 
 // Writer batches product upserts inside a single transaction.
 type Writer struct {
@@ -169,22 +140,7 @@ func nullIfEmpty(s string) any {
 }
 
 func (w *Writer) Put(p normalize.Product) error {
-	ts := p.SyncedAt.UTC().Format(time.RFC3339)
-	if _, err := w.product.Exec(
-		p.ProductID, nullIfEmpty(p.ProductNumber), p.Name, nullIfEmpty(p.NameThin),
-		p.FullName, nullIfEmpty(p.Producer), nullIfEmpty(p.Supplier),
-		nullIfEmpty(p.Country), nullIfEmpty(p.Origin1), nullIfEmpty(p.Origin2),
-		nullIfEmpty(p.Cat1), nullIfEmpty(p.Cat2), nullIfEmpty(p.Cat3), nullIfEmpty(p.CategoryTitle),
-		p.Vintage, p.Price, p.VolumeML, p.ABV, p.SugarPer100ML,
-		nullIfEmpty(p.AssortmentText), p.Availability, p.AvailabilityRank, p.IsDiscontinued, p.IsOutOfStock,
-		p.IsOrganic, p.IsSustainable, p.IsEthical, nullIfEmpty(p.EthicalLabel),
-		nullIfEmpty(p.Packaging), nullIfEmpty(p.Seal), nullIfEmpty(p.CO2Impact),
-		p.ClockBody, p.ClockTannin, p.ClockSweetness, p.ClockBitter, p.ClockFruitacid,
-		p.ClockSmokiness, p.ClockCasque, nullIfEmpty(p.CasqueText),
-		nullIfEmpty(p.Taste), nullIfEmpty(p.Color), nullIfEmpty(p.Usage),
-		nullIfEmpty(p.LaunchDate), nullIfEmpty(p.SellStartTime), p.IsNews, p.IsWebLaunch,
-		nullIfEmpty(p.AssortmentCode), p.Raw, ts,
-	); err != nil {
+	if _, err := w.product.Exec(productArgs(p)...); err != nil {
 		return fmt.Errorf("upsert product %s: %w", p.ProductID, err)
 	}
 
@@ -375,23 +331,12 @@ func (d *DB) Stats(ctx context.Context, w io.Writer) error {
 	return rows.Err()
 }
 
-// exportSchema is the shape of the portable snapshot. Column names match the
-// main product table so SQL written against one works against the other.
-const exportSchema = `
-CREATE TABLE product (
-  product_id TEXT PRIMARY KEY, full_name TEXT, name TEXT, name_thin TEXT,
-  producer TEXT, country TEXT, origin1 TEXT,
-  cat1 TEXT, cat2 TEXT, cat3 TEXT,
-  vintage INTEGER, price REAL, volume_ml REAL, abv REAL, sek_per_litre REAL,
-  availability TEXT, availability_rank INTEGER,
-  is_organic INTEGER, is_vegan INTEGER, is_natural INTEGER,
-  is_gluten_free INTEGER, is_kosher INTEGER,
-  clock_body INTEGER, clock_tannin INTEGER, clock_sweetness INTEGER,
-  clock_bitter INTEGER, clock_fruitacid INTEGER, clock_smokiness INTEGER,
-  packaging TEXT, taste TEXT, color TEXT, usage TEXT,
-  launch_date TEXT, sell_start_time TEXT, is_news INTEGER, is_web_launch INTEGER,
-  assortment_code TEXT
-);
+// exportSchema is the shape of the portable snapshot. The product table comes
+// from productColumns, so a column marked `slim` reaches the snapshot without
+// anyone remembering to add it here -- which is exactly what went wrong with
+// launch_date. The rest is literal: these tables have no second definition to
+// drift from.
+var exportSchema = slimProductTable + `
 CREATE TABLE product_grape (product_id TEXT, grape TEXT, raw_name TEXT);
 CREATE TABLE product_pairing (product_id TEXT, pairing TEXT);
 CREATE TABLE store (site_id TEXT PRIMARY KEY, name TEXT, address TEXT, city TEXT, county TEXT);
@@ -435,14 +380,7 @@ func (d *DB) ExportSlim(ctx context.Context, path string, maxRank int) (int, err
 	}
 
 	copies := []string{
-		`INSERT INTO slim.product SELECT product_id, full_name, name, name_thin,
-		   producer, country, origin1, cat1, cat2, cat3, vintage, price, volume_ml,
-		   abv, sek_per_litre, availability, availability_rank, is_organic, is_vegan,
-		   is_natural, is_gluten_free, is_kosher, clock_body, clock_tannin,
-		   clock_sweetness, clock_bitter, clock_fruitacid, clock_smokiness,
-		   packaging, taste, color, usage,
-		   launch_date, sell_start_time, is_news, is_web_launch, assortment_code
-		 FROM main.product WHERE availability_rank <= ? AND is_discontinued = 0`,
+		slimProductCopy,
 		`INSERT INTO slim.product_grape SELECT g.* FROM main.product_grape g
 		 JOIN slim.product p ON p.product_id = g.product_id`,
 		`INSERT INTO slim.product_pairing SELECT r.* FROM main.product_pairing r

@@ -1,104 +1,18 @@
 -- bolagetdb schema
 --
 -- Design notes:
---  * `raw` holds the untouched API JSON. Systembolaget changes fields without
---    notice; the typed columns are a convenience view over data we still keep
---    verbatim, so a schema miss never loses information.
---  * Derived columns (sek_per_litre, sek_per_cl_alcohol) are STORED generated
---    columns so they can never drift out of sync with their inputs.
---  * `otherSelections` (vegan/natural/gluten-free/kosher) is filterable upstream
---    but never returned in a product record, so those flags are materialised by
---    separate enrichment passes. See internal/fetch.
+--  * The product table is generated from columns.go -- see the note below.
+--  * Indexes, triggers and the FTS table live here because they have a single
+--    definition and nothing else has to agree with them.
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
-CREATE TABLE IF NOT EXISTS product (
-  product_id            TEXT PRIMARY KEY,
-  product_number        TEXT,
-  name                  TEXT NOT NULL,      -- productNameBold
-  name_thin             TEXT,               -- productNameThin
-  full_name             TEXT,               -- name + name_thin, for display
-  producer              TEXT,
-  supplier              TEXT,
-
-  country               TEXT,
-  origin1               TEXT,
-  origin2               TEXT,
-
-  cat1                  TEXT,               -- Vin / Öl / Sprit / ...
-  cat2                  TEXT,               -- Rött vin / Ale / Whisky / ...
-  cat3                  TEXT,               -- style; NULL for ~76% of wine
-  category_title        TEXT,
-
-  vintage               INTEGER,
-  price                 REAL,
-  volume_ml             REAL,
-  abv                   REAL,
-  sugar_g_per_100ml     REAL,
-
-  -- Derived. Guarded against zero volume / zero abv.
-  sek_per_litre         REAL GENERATED ALWAYS AS (
-                          CASE WHEN volume_ml > 0 THEN price / (volume_ml / 1000.0) END
-                        ) STORED,
-  sek_per_cl_alcohol    REAL GENERATED ALWAYS AS (
-                          CASE WHEN volume_ml > 0 AND abv > 0
-                               THEN price / (volume_ml * abv / 100.0 / 10.0) END
-                        ) STORED,
-
-  -- Availability. assortment_text is verbatim; availability/_rank are normalised.
-  assortment_text       TEXT,
-  availability          TEXT,               -- stocked | limited | order_only
-  availability_rank     INTEGER,            -- 1 = easiest to actually buy
-  is_discontinued       INTEGER NOT NULL DEFAULT 0,
-  is_out_of_stock       INTEGER NOT NULL DEFAULT 0,
-
-  -- Dietary / ethical. vegan..natural come from enrichment passes, not the record.
-  is_organic            INTEGER NOT NULL DEFAULT 0,
-  is_sustainable        INTEGER NOT NULL DEFAULT 0,
-  is_ethical            INTEGER NOT NULL DEFAULT 0,
-  ethical_label         TEXT,
-  is_vegan              INTEGER,            -- NULL = not yet enriched
-  is_natural            INTEGER,
-  is_gluten_free        INTEGER,
-  is_kosher             INTEGER,
-
-  packaging             TEXT,
-  seal                  TEXT,
-  co2_impact            TEXT,
-
-  -- Taste clocks, 0-12. Populated for essentially all shelf-stocked products.
-  clock_body            INTEGER,
-  clock_tannin          INTEGER,            -- tasteClockRoughness
-  clock_sweetness       INTEGER,
-  clock_bitter          INTEGER,
-  clock_fruitacid       INTEGER,
-  clock_smokiness       INTEGER,
-  clock_casque          INTEGER,
-  casque_text           TEXT,
-
-  taste                 TEXT,
-  color                 TEXT,
-  usage                 TEXT,
-
-  -- Release scheduling. Limited products are listed on a weekly Thu/Fri cadence
-  -- and pre-announced, so launch_date is frequently in the future -- that is
-  -- what makes "what drops on Friday" answerable at all. sell_start_time is the
-  -- time of day sales open. assortment_code is the short code (FS, TSE, TSS,
-  -- TST, TSV) behind assortment_text.
-  launch_date           TEXT,
-  sell_start_time       TEXT,
-  is_news               INTEGER NOT NULL DEFAULT 0,
-  -- Web launches ("Webblanseringar") are allocation drops applied for online,
-  -- not bottles to queue for in a shop. Their assortment_text is unknown to the
-  -- availability map, so they fall back to order_only -- correct, but it hides
-  -- that they are the most sought-after releases.
-  is_web_launch         INTEGER NOT NULL DEFAULT 0,
-  assortment_code       TEXT,
-
-  raw                   TEXT NOT NULL,      -- verbatim API JSON
-  synced_at             TEXT NOT NULL
-);
+-- The `product` table itself is NOT here. Its columns are declared once in
+-- columns.go and the CREATE TABLE is generated from that list, along with the
+-- upsert and the snapshot schema, so those four cannot drift apart. Open()
+-- creates it before running this file; the indexes below therefore always find
+-- their columns. Everything that has only one definition stays here.
 
 CREATE INDEX IF NOT EXISTS idx_product_cat        ON product(cat1, cat2, cat3);
 CREATE INDEX IF NOT EXISTS idx_product_avail      ON product(availability_rank, price);
