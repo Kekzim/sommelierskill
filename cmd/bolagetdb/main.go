@@ -165,10 +165,14 @@ func logger(cmd *cli.Command) *slog.Logger {
 }
 
 func client(ctx context.Context, cmd *cli.Command) (*systembolaget.AuthenticatedClient, error) {
+	// Retry in the transport rather than at the call sites, so every request
+	// the upstream library makes is covered -- including the API-key fetch
+	// below, which is a single point of failure for the whole run.
+	httpClient := fetch.RetryingClient(systembolaget.DefaultClient.Client, logger(cmd))
 	if key := cmd.String("api-key"); key != "" {
-		return &systembolaget.AuthenticatedClient{APIKey: key, Client: systembolaget.DefaultClient.Client}, nil
+		return &systembolaget.AuthenticatedClient{APIKey: key, Client: httpClient}, nil
 	}
-	c, err := systembolaget.DefaultClient.GetAuthenticatedClient(ctx)
+	c, err := (&systembolaget.Client{Client: httpClient}).GetAuthenticatedClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("could not obtain an API key (pass --api-key to override): %w", err)
 	}

@@ -180,6 +180,29 @@ forking — see `filterByOtherSelection`.
 **`store.SetFlag` interpolates a column name into SQL** and therefore
 allowlists it. Any similar helper must do the same.
 
+**Transient upstream failures are retried in the transport, not at the call
+sites.** `fetch.RetryingClient` wraps the `*http.Client` the upstream library
+uses, so every request is covered — slice pages, enrichment passes, store
+assortments, and the API-key fetch that the whole run depends on — without a
+single call site knowing about it.
+
+It retries 429, the transient 5xx family and network errors, five attempts,
+backing off 5s → 10s → 20s → 40s with jitter, preferring `Retry-After` when the
+server sends one. Cancelled or expired contexts are passed straight back: those
+are the caller's decision, not a transient failure. It is patient on purpose —
+when Systembolaget rate-limits it refuses everything for a while, so retrying a
+second later is just another refusal.
+
+Why it exists: on 2026-09-08 a single 429 arrived twelve minutes into a
+twenty-minute sync and took six slices, all four enrichment passes and both
+store assortments with it in under half a second. Nothing was published, which
+is the guards working — but one refused request cost a week of freshness.
+
+Two things the tests pin down beyond the obvious: a 404 must **not** be retried
+(one wrong URL would become five), and the response body of every abandoned
+attempt must be drained and closed, or a long sync leaks a connection per retry
+with no visible symptom until it runs out of descriptors.
+
 **Keep `--page-delay` non-zero.** This is an undocumented API and an agent will
 otherwise hit it far harder than any human browsing session.
 
@@ -295,14 +318,16 @@ fresh-database branch used to be for.
 
 Known open items, so a fresh session does not have to rediscover them:
 
-- **The weekly schedule has never actually fired.** The only sync on the NAS so
-  far is the manual first run of 2026-09-04, which took the build-from-scratch
-  branch. A scheduled run takes the other one -- copy the mirror, sync
-  incrementally, prune, publish, swap under a live server -- and that branch has
-  not run in a container. First firing is Friday 19:00 Europe/Stockholm.
-- **Assortment drift is measured from one interval only** (27,225 -> 27,124 over
-  ten days). Friday's run gives the second data point, which is what says
-  whether weekly is the right cadence or merely the one that was picked.
+- **The scheduled sync is verified as of 2026-09-08.** It had never fired before
+  that — busybox crond needs root and a non-nologin shell, and the image gave it
+  neither, silently. Fixed in v1.0.1 and observed firing on the minute, running
+  as uid 10001, taking the incremental branch. The weekly path is now exercised
+  end to end; what has still never been observed is an *unattended* Friday run.
+- **Assortment drift, measured twice:** 27,225 → 27,124 over ten days, then
+  27,121 → 27,071 over four. Both land at roughly 10–12 products a day, so a
+  week costs ~70–85 products, about 0.3% of the assortment. Weekly is the right
+  cadence, and this is now measured rather than assumed. Wine is nearly all the
+  churn — 43 of that 50.
 - **The mirror may be mid-refresh.** Check with `bolagetdb stats`; if rows carry
   two `synced_at` dates, a sync was interrupted. Re-run a full sync, which will
   also prune whatever has been delisted since.
