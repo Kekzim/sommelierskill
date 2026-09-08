@@ -60,6 +60,8 @@ dependency.
 ```bash
 make install                # build + install to ~/.local/bin
 make skill                  # build the Claude apps package -> dist/sommelier.zip
+make skill-nas              # ...but from the NAS mirror, which is the current one
+make release VERSION=v1.0.3 # build + push both container images to GHCR
 make build                  # -> ./bolagetdb
 make test                   # go test ./...
 make vet
@@ -416,6 +418,20 @@ readlink -f ~/.claude/skills/sommelier/references/preferences.md
 `skill/` — **the Claude apps** (claude.ai / desktop). This is the source;
 `make skill` copies it into `dist/sommelier/`, adds the exported snapshot and
 zips it (~2.0 MB). `dist/` is gitignored — edit `skill/`, never `dist/`.
+
+**`make skill` exports from whichever mirror is on the machine running it**, and
+on a workstation that is whatever was last synced *here* — which is nobody's job
+and drifts. The NAS mirror is the one actually kept current, refreshed weekly by
+the sync container, so `make skill-nas` copies that over `scp` and builds from
+it. It asks for the NAS password; there is no key installed.
+
+A stale snapshot is invisible — the package looks identical and simply gives old
+prices and misses new releases — so every build now prints the snapshot's
+`source_sync` age and warns past ten days, a little over one sync cycle. That
+warning is how this was noticed: the shipped snapshot was thirteen days old
+while the NAS had data from that morning.
+
+Any mirror works as the source: `make skill SKILL_DB=/path/to/bolaget.db`.
 
   skill/SKILL.md                  persona, method, the rules that matter
   skill/references/preferences.md ordinary language -> SQL (the domain artifact)

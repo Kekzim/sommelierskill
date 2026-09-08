@@ -1,7 +1,7 @@
 BINARY := bolagetdb
 DB     := bolaget.db
 
-.PHONY: build sync stores stats test fmt vet clean
+.PHONY: build sync stores stats test fmt vet clean skill skill-nas snapshot-age
 
 build:
 	go build -o $(BINARY) ./cmd/bolagetdb
@@ -28,6 +28,14 @@ vet:
 clean:
 	rm -f $(BINARY) $(DB) $(DB)-wal $(DB)-shm
 
+# Which mirror the snapshot is exported from. Empty means bolagetdb's own
+# resolution (~/.local/share/bolagetdb/bolaget.db) -- this workstation's mirror,
+# which is only as fresh as the last sync run *here*. The NAS holds the one that
+# is actually kept current; see skill-nas below.
+SKILL_DB ?=
+SKILL_DB_FLAG = $(if $(SKILL_DB),--db $(SKILL_DB),)
+NAS_DB ?= root@unRaidNAS:/mnt/user/appdata/sommelier/bolaget.db
+
 # Portable skill package for the Claude apps (claude.ai / desktop).
 # The local .claude/skills/sommelier skill targets Claude Code and drives the
 # full database; this one bundles a slim snapshot and runs anywhere.
@@ -35,10 +43,35 @@ skill: build
 	rm -rf dist/sommelier
 	mkdir -p dist/sommelier
 	cp -r skill/. dist/sommelier/
-	./$(BINARY) export --output dist/sommelier/data/bolaget-slim.db
+	./$(BINARY) $(SKILL_DB_FLAG) export --output dist/sommelier/data/bolaget-slim.db
 	cd dist && rm -f sommelier.zip && zip -qr sommelier.zip sommelier
 	@echo "--- package ---" && find dist/sommelier -type f | sort
 	@ls -lh dist/sommelier.zip | awk '{print "packaged:", $$5, $$9}'
+	@$(MAKE) --no-print-directory snapshot-age
+
+# The snapshot's age is the one thing about this package that fails silently:
+# a stale bundle looks identical to a fresh one and simply gives wrong prices
+# and misses new releases. So say it out loud after every build.
+snapshot-age:
+	@src=$$(./$(BINARY) --db dist/sommelier/data/bolaget-slim.db query --format csv \
+	          "SELECT value FROM meta WHERE key='source_sync'" 2>/dev/null | tail -1); \
+	if [ -z "$$src" ]; then echo "snapshot: could not read source_sync"; exit 0; fi; \
+	days=$$(( ( $$(date +%s) - $$(date -d "$$src" +%s) ) / 86400 )); \
+	echo "snapshot data: $$src ($$days days old)"; \
+	if [ $$days -gt 10 ]; then \
+	  echo "WARNING: older than a weekly sync cycle."; \
+	  echo "  This workstation's mirror is not the one being refreshed -- the NAS is."; \
+	  echo "  Use 'make skill-nas' to build from the mirror that is actually current."; \
+	fi
+
+# Build the package from the NAS mirror, which the sync container refreshes
+# weekly. Asks for the NAS password: there is no key installed, deliberately.
+skill-nas:
+	@mkdir -p dist
+	@echo "copying the NAS mirror (~120 MB) -- this will ask for the NAS password"
+	scp $(NAS_DB) dist/nas-mirror.db
+	@$(MAKE) --no-print-directory skill SKILL_DB=dist/nas-mirror.db
+	rm -f dist/nas-mirror.db
 
 # Install the binary so the Claude Code skill can call it from any directory.
 install: build
