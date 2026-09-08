@@ -330,6 +330,29 @@ Known open items, so a fresh session does not have to rediscover them:
   week costs ~70–85 products, about 0.3% of the assortment. Weekly is the right
   cadence, and this is now measured rather than assumed. Wine is nearly all the
   churn — 43 of that 50.
+- **Sharing the MCP server with other people — considered, not built.** The auth
+  change is small: `authorise` in `mcp-server/src/index.ts` does one exact match
+  against `MCP_AUTH_TOKEN`, so a list of `name:token` pairs plus a loop is ~20
+  lines, and labelling them means one person can be revoked without disturbing
+  anyone else. The Cloudflare WAF rule needs **no** change — other people's
+  Claude connects from Anthropic's egress range too, not from their homes, so
+  the IP allowlist keeps working unchanged.
+
+  The gap to close first is not auth. `query` runs arbitrary SQL with a 500-row
+  cap on output and nothing capping *work*, so a cartesian join over 27k
+  products pins the container's single core; an agent writing a bad join gets
+  there without malice. `busy_timeout` is about lock waits, not execution time.
+
+  Two couplings worth remembering. `check_stock` would run on the owner's API
+  key and go out through the owner's WAN address, so other people's lookups
+  could get that IP rate-limited — and the thing that breaks is the weekly sync
+  (see the 429 on 2026-09-08). And the NAS becomes their dependency: every
+  reboot surfaces on their end as "couldn't reach the MCP server", which says
+  nothing about the cause.
+
+  Per-token rate limiting is real work and probably unnecessary until someone
+  actually causes a problem. Onboarding is the URL, a token, and telling them to
+  type `Bearer ` in front of it — that omission cost two evenings once already.
 - **The mirror may be mid-refresh.** Check with `bolagetdb stats`; if rows carry
   two `synced_at` dates, a sync was interrupted. Re-run a full sync, which will
   also prune whatever has been delisted since.
