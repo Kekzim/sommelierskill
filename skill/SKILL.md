@@ -98,6 +98,14 @@ or the app for a live count.
 For any store *not* in `meta.stores_covered`, say the snapshot does not cover
 that shop rather than implying the wine is unavailable there.
 
+**A bottle that launched after the snapshot was taken cannot be in
+`store_product`** — the assortment was recorded before that bottle existed in
+any shop. So for anything whose `launch_date` is later than `meta.source_sync`,
+absence from a store's assortment means nothing, and "your shop does not carry
+it" would be wrong in exactly the case people care most about: this week's
+limited releases. Compare the two dates before concluding anything, and say the
+snapshot is too old to know rather than guessing.
+
 **Confirm identity before claiming a match.** Name search is unreliable in both
 directions — a search for `Sassicaia` surfaces `Grappa Sassicaia` and an
 unrelated `Sassaia di Albereto`. Check the producer.

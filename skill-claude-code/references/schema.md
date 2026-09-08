@@ -68,6 +68,22 @@ have actually been mirrored, which is a much shorter list. Mirrored stores are
 `SELECT DISTINCT site_id FROM store_product`; a store present in `store` but
 absent there is simply not mirrored, not empty.
 
+It is also a snapshot in time. A product whose `launch_date` is later than the
+last sync cannot appear here — it did not exist in any shop when the assortment
+was walked — so its absence says nothing about whether the store carries it.
+Check before answering:
+
+```sql
+SELECT p.full_name, p.launch_date,
+       (SELECT max(finished_at) FROM sync_run WHERE finished_at IS NOT NULL) AS last_sync,
+       EXISTS (SELECT 1 FROM store_product sp
+               WHERE sp.product_id = p.product_id AND sp.site_id = '1002') AS at_store
+FROM product p WHERE p.product_id = '<id>'
+```
+
+If `launch_date` is after `last_sync`, `at_store = 0` is uninformative: say the
+mirror predates the release and check live stock instead.
+
 ## Taste clocks
 
 0–12 integers. `clock_tannin` is Systembolaget's *strävhet*. They are populated

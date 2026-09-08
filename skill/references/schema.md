@@ -37,8 +37,23 @@ unchanged.
 **`store`** (`site_id`, `name`, `address`, `city`, `county`) and
 **`store_product`** (`site_id`, `product_id`) — the assortment of the stores
 that have been mirrored. Only some stores are covered; check
-`meta.stores_covered`. A product absent from `store_product` for a covered
-store means that store does not carry it.
+`meta.stores_covered`.
+
+For a covered store, a product absent from `store_product` is usually one that
+store does not carry — **unless it launched after the snapshot was taken**. The
+assortment was walked before that bottle existed in any shop, so it could not
+have been recorded. Compare `launch_date` with `meta.source_sync`:
+
+```sql
+SELECT p.full_name, p.launch_date,
+       (SELECT value FROM meta WHERE key = 'source_sync') AS snapshot_taken,
+       EXISTS (SELECT 1 FROM store_product sp
+               WHERE sp.product_id = p.product_id AND sp.site_id = '1002') AS at_store
+FROM product p WHERE p.product_id = '<id>'
+```
+
+If `launch_date` is the later of the two, `at_store = 0` means nothing — say the
+snapshot predates the release rather than reporting the shop does not stock it.
 
 **`meta`** — snapshot provenance, including `stores_covered`.
 

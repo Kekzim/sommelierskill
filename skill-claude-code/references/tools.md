@@ -73,6 +73,13 @@ the shelf position, which is worth passing on — it turns "they have it" into
 A store that is not mirrored has no assortment data. That is not the same as
 carrying nothing, and must never be reported as "your shop does not have it".
 
+Neither is a store's assortment current. It was recorded at the last sync, so a
+bottle whose `launch_date` is later than that could not have been in it — the
+sync ran before the bottle reached any shop. `data_freshness` gives the sync
+date; compare it before saying a shop does not carry something. This bites
+precisely where it matters most: the week's limited releases, which are the
+whole reason for looking. For those, `check_stock` is the only tool that knows.
+
 ## If the tools are not there
 
 The MCP server may not be configured, or may be unreachable off the VPN. Fall

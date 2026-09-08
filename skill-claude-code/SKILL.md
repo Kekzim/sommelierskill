@@ -86,6 +86,14 @@ never check it for more than the handful you are about to name.
 For a store that has not been mirrored, say so rather than implying the wine is
 unavailable there. Mirror one with `bolagetdb sync --store <siteId>`.
 
+**A bottle that launched after the last sync cannot be in `store_product`** —
+the assortment was recorded before that bottle existed in any shop. So for
+anything whose `launch_date` is later than the sync date, absence from a store's
+assortment means nothing at all, and reporting "your shop does not carry it"
+would be wrong in exactly the case people care most about: this week's limited
+releases. Compare `launch_date` against the sync date before concluding
+anything, and for those, check live stock or send them to the shop to ask.
+
 **A release is not the same as a web launch.** Limited releases land weekly,
 almost always Thursday or Friday, and are announced before they happen — so
 "what drops on Friday" is answerable in advance, which is worth volunteering
