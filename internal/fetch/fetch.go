@@ -149,13 +149,27 @@ type SliceResult struct {
 // holds, or until the available sort orders are exhausted.
 //
 // seen is shared across slices and carries the ids already stored, so fn is
-// called at most once per product per sync.
+// called at most once per product per sync. It deliberately does not affect
+// this slice's coverage count -- see the note in the body.
 func (f *Fetcher) FetchSlice(ctx context.Context, s Slice, syncedAt time.Time, seen map[string]struct{}, fn ProductFunc) (SliceResult, error) {
 	var res SliceResult
 
+	// Coverage of this slice is its own question, separate from what the sync
+	// has already stored. A product can belong to two slices, and when it does,
+	// counting only the ids this slice contributed *first* makes the second
+	// slice permanently short of its facet count -- no sort order can recover a
+	// product that was legitimately fetched, just earlier. Measured: "Vin /
+	// Smaksatt vin & fruktvin" reports 176 of 178 in a full sync and 178 of 178
+	// when fetched alone.
+	//
+	// That is not cosmetic. One slice short of its count sets incomplete, and
+	// incomplete vetoes the prune for the entire run, so delisted products
+	// survive another week because two wines were counted somewhere else.
+	inSlice := make(map[string]struct{})
+
 	for _, order := range passOrders {
 		before := res.Unique
-		rows, err := f.fetchPass(ctx, s, order.By, order.Dir, syncedAt, seen, &res, fn)
+		rows, err := f.fetchPass(ctx, s, order.By, order.Dir, syncedAt, inSlice, seen, &res, fn)
 		res.Rows += rows
 		res.Passes++
 		if err != nil {
@@ -193,6 +207,7 @@ func (f *Fetcher) fetchPass(
 	by systembolaget.SortProperty,
 	dir systembolaget.SortDirection,
 	syncedAt time.Time,
+	inSlice map[string]struct{},
 	seen map[string]struct{},
 	res *SliceResult,
 	fn ProductFunc,
@@ -213,11 +228,18 @@ func (f *Fetcher) fetchPass(
 			f.Log.Warn("skipping product without an id", slog.String("slice", s.String()))
 			continue
 		}
+		// Coverage first: this slice has now returned this product, whether or
+		// not another slice got to it earlier.
+		if _, counted := inSlice[id]; !counted {
+			inSlice[id] = struct{}{}
+			res.Unique++
+		}
+
+		// Storage second: fn runs at most once per product per sync.
 		if _, dup := seen[id]; dup {
 			continue
 		}
 		seen[id] = struct{}{}
-		res.Unique++
 
 		raw, err := json.Marshal(p)
 		if err != nil {

@@ -154,6 +154,20 @@ fetched, no failures, no `--only` filter, products not skipped. Pruning after a
 partial run would delete good products merely because their slice failed. A
 partial run logs that it skipped the prune. `--no-prune` opts out.
 
+**A slice's coverage is counted separately from what the sync has stored.**
+`seen` is shared across slices so a product is stored once per sync; slice
+coverage uses its own set. Conflating them was a real bug: a product belonging
+to two slices was counted only for whichever slice reached it first, leaving the
+other permanently short of its facet count. No sort order can recover a product
+that was fetched, just earlier — and one short slice sets `incomplete`, which
+vetoes the prune for the **entire run**. Two wines counted elsewhere kept ~27k
+products' worth of delisted stock in the mirror for another week.
+
+Measured rather than reasoned: `Vin / Smaksatt vin & fruktvin` reported 176 of
+178 in a full sync and 178 of 178 fetched alone with `--only`. The facet counts
+were right all along. `TestCoverageCountsProductsAlreadySeenInAnotherSlice`
+drives `FetchSlice` through a fake transport and fails with the old counting.
+
 **Stock is never mirrored.** Product facts change slowly and are cached; shelf
 stock changes hourly and must be read live from
 `sb-api-ecommerce/v1/stockbalance/store/{storeId}/{productId}` at the moment of
@@ -330,6 +344,12 @@ Known open items, so a fresh session does not have to rediscover them:
   week costs ~70–85 products, about 0.3% of the assortment. Weekly is the right
   cadence, and this is now measured rather than assumed. Wine is nearly all the
   churn — 43 of that 50.
+- **How often the prune was actually vetoed is unknown.** `sync_run.note`
+  records incomplete coverage, and only two runs exist on the NAS: 2026-09-04
+  logged "2 slices incompletely covered" (harmless — a first build has nothing
+  to prune) and 2026-09-08 was clean and pruned 50 products. The cross-slice
+  counting bug is fixed, but whether any *other* slice genuinely fails to
+  converge will only show up over several weekly runs. Watch the `note` column.
 - **Sharing the MCP server with other people — considered, not built.** The auth
   change is small: `authorise` in `mcp-server/src/index.ts` does one exact match
   against `MCP_AUTH_TOKEN`, so a list of `name:token` pairs plus a loop is ~20
