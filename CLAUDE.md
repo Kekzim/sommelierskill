@@ -214,6 +214,27 @@ is caught. `TestSnapshotCarriesEverySlimColumn` exports a snapshot and checks
 that every `slim` column arrives with the value it was stored with -- the check
 that `launch_date` never had.
 
+**busybox crond runs nothing unless it is root, and skips any crontab whose
+user has a nologin shell.** Both failures are completely silent — at every log
+level, crond prints `started, log level 8` and then sits there forever, having
+never parsed the crontab. The sync image had `USER 10001` and `adduser -S`
+(which gives `/sbin/nologin`), so it failed both conditions and **the weekly
+schedule never fired once**. It went unnoticed for a week because the only sync
+that ever ran was the initial inline one `sync.sh schedule` performs when it
+finds no mirror, which looks exactly like a successful deployment.
+
+So the sync container runs as root — that is the only reason it does — and
+`crond` drops to `bolaget` for the job. `sync.sh once` drops too, so a
+`docker exec` from the host does not leave root-owned files in `/data`.
+`assert_cron_can_run` checks both conditions at startup and exits 1 rather than
+idling convincingly; with `restart: unless-stopped` that surfaces as a
+crash-loop, which is the point.
+
+The job writes to `/tmp/sync.log`, tailed into the container's stdout. It used
+to redirect to `/proc/1/fd/1`, which stops working the moment PID 1 is root:
+`/proc/1/fd` is mode 0500, so an unprivileged job cannot open it, and
+`docker logs` would show the schedule line and then nothing forever.
+
 **The NAS deployment is `docker run`, not Compose.** Unraid ships no Compose of
 its own — it comes from the Compose Manager plugin. When that plugin went
 missing, `docker compose` became an unknown command and the `.env` beside the

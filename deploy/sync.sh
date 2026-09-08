@@ -24,6 +24,13 @@ STORES="${SYNC_STORES:-1001 1002}"
 # run picks up next week's drops before they happen. Nightly would triple the
 # load on an undocumented API for nothing.
 SCHEDULE="${CRON_SCHEDULE:-0 19 * * 5}"
+# The unprivileged user the sync runs as. The container starts as root only so
+# that crond works; every job drops to this user.
+RUN_USER=bolaget
+# Job output goes here and is streamed to the container's stdout. It used to go
+# to /proc/1/fd/1, which stops working the moment PID 1 is root: /proc/1/fd is
+# mode 0500, so an unprivileged job cannot open it.
+JOB_LOG=/tmp/sync.log
 
 log() { echo "[sync] $(date '+%Y-%m-%dT%H:%M:%S%z') $*"; }
 
@@ -40,6 +47,32 @@ assert_readonly_safe() {
     log "  VACUUM INTO and do not point bolagetdb at \$LIVE."
     return 1
   fi
+}
+
+# busybox crond executes nothing unless it is root, and silently skips any
+# crontab whose user has a nologin shell. Neither failure is reported at any
+# log level: crond starts, says "started, log level 8", and sits there forever
+# having never parsed the crontab. That is exactly how a weekly schedule that
+# had never fired once went unnoticed -- the only sync that ever ran was the
+# initial inline one below.
+#
+# So both conditions are asserted at startup, and failing them kills the
+# container rather than letting it idle convincingly.
+assert_cron_can_run() {
+  if [ "$(id -u)" != 0 ]; then
+    log "FATAL: crond needs to be root to run anything; this container is uid $(id -u)."
+    log "  busybox crond loads no crontab at all when unprivileged, and says nothing."
+    return 1
+  fi
+  shell=$(awk -F: -v u="$RUN_USER" '$1 == u { print $7 }' /etc/passwd)
+  case "$shell" in
+    */nologin | */false | '')
+      log "FATAL: user $RUN_USER has shell '${shell:-none}'; crond skips such crontabs silently."
+      log "  Give the user a real shell (adduser -s /bin/sh) in the Dockerfile."
+      return 1
+      ;;
+  esac
+  return 0
 }
 
 # A published database must actually contain the assortment. The journal-mode
@@ -139,17 +172,34 @@ run_once() {
 
 case "${1:-schedule}" in
   once)
+    # crond already invokes this as $RUN_USER. A `docker exec` from the host
+    # arrives as root, and a root sync would leave root-owned files in /data
+    # that the next unprivileged run could not rewrite -- so drop here too.
+    if [ "$(id -u)" = 0 ]; then
+      exec su "$RUN_USER" -c "$0 once"
+    fi
     run_once
     ;;
   schedule)
     log "schedule: $SCHEDULE (TZ=${TZ:-UTC}); stores: $STORES"
+    assert_cron_can_run || exit 1
     if [ ! -f "$LIVE" ]; then
       log "no mirror yet, running an initial sync before scheduling"
-      run_once || log "initial sync failed; the schedule still stands"
+      # Through $0, not run_once, so it drops to $RUN_USER like every other run.
+      "$0" once || log "initial sync failed; the schedule still stands"
     fi
-    # busybox crond needs the crontab under the running user's name.
+    # The crontab must be named for the user the job should run as -- crond
+    # switches to it. Naming it after the *current* user would run the sync as
+    # root, which is precisely what this arrangement is avoiding.
     mkdir -p /tmp/crontabs
-    echo "$SCHEDULE /usr/local/bin/sync.sh once >> /proc/1/fd/1 2>&1" > "/tmp/crontabs/$(id -un)"
+    echo "$SCHEDULE /usr/local/bin/sync.sh once >> $JOB_LOG 2>&1" > "/tmp/crontabs/$RUN_USER"
+    : > "$JOB_LOG"
+    chown "$RUN_USER" "$JOB_LOG"
+    # PID 1 will be crond, so the job cannot write to the container's stdout
+    # directly. Tail the job log into it instead, or `docker logs` shows the
+    # schedule line and then nothing for the rest of the container's life.
+    tail -F "$JOB_LOG" 2>/dev/null &
+    log "crontab installed for $RUN_USER (uid $(id -u "$RUN_USER")); waiting for $SCHEDULE"
     exec crond -f -d 8 -c /tmp/crontabs
     ;;
   *)

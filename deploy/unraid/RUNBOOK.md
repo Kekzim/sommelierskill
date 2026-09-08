@@ -167,6 +167,12 @@ rolling one back a one-line edit followed by `./run.sh`.
 
 ## Changing the schedule
 
+The sync container runs as **root**, and only because busybox crond refuses to
+load a crontab otherwise. The sync itself runs as uid 10001: crond drops to
+`bolaget` for the job, and so does `sync.sh once`. If either condition that
+crond needs is ever broken, the container exits 1 at startup with a FATAL line
+rather than idling — it will not silently fail to run again.
+
 The crontab is written when the container starts, from `$CRON_SCHEDULE`. A
 restart does not re-read it — the container must be recreated:
 
@@ -179,7 +185,14 @@ that, and `docker restart sommelier-sync` is not enough either.
 
 To fire once at a specific time — proving the scheduled path works without
 waiting a week — use a dated expression like `CRON_SCHEDULE=0 0 8 9 *` (midnight
-on 8 September). Prefer that to `0 0 * * *`: if you forget to revert, a one-shot
+on 8 September). **Compute it from the container's clock, not the host's**: the
+Unraid host reports UTC while the containers run Europe/Stockholm, so an
+expression worked out on the host lands two hours off.
+
+```bash
+docker exec sommelier-sync sh -c 'date -d @$(( $(date +%s) + 300 )) "+%-M %-H %-d %-m *"'
+```
+ Prefer that to `0 0 * * *`: if you forget to revert, a one-shot
 goes quiet, while a nightly keeps hammering an undocumented API every night,
 which is exactly what the weekly cadence exists to avoid.
 
