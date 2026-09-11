@@ -167,11 +167,19 @@ three slices had already given up inside it — while enrichment and both store
 assortments, running minutes later, completed normally. The whole run was
 discarded over a throttle that had already passed.
 
-**The throttle has a consistent onset: roughly 12–13 minutes in, about 1,500
-requests deep** (2026-09-08 at 12 minutes, 2026-09-11 at 13). It lasts five to
-six minutes. That looks like a quota rather than a burst limit, so raising
-`--page-delay` would postpone it rather than avoid it — worth testing before
-anyone tries.
+**The throttle is not a request quota — it looks like time of day.** The first
+reading suggested a quota: 429s arrived 12 minutes in on 2026-09-08 and 13 on
+2026-09-11, both around 1,500 requests. That was wrong. A run starting 22:12 the
+same evening made ~2,661 requests over 23 minutes and was never refused once.
+
+What separates them is the hour. 19:00 on a Friday is peak Systembolaget
+traffic; 22:12 is quiet, and the 2026-09-08 refusal was self-inflicted (a second
+full sync within an hour). A load-adaptive limiter fits all three; a quota fits
+none. So **raising `--page-delay` is the wrong lever** — it would stretch the
+run through more of the busy window, not less. Sync at a quiet hour instead.
+
+Two observations is not proof. The test is simply to watch: a scheduled run at a
+quiet hour that never trips, against the one 19:00 run that did.
 
 **`sync_run.products` counts what was stored, not the sum of slice coverage.**
 Those differ once coverage is counted per slice: a product in two slices is
@@ -363,11 +371,17 @@ Known open items, so a fresh session does not have to rediscover them:
   neither, silently. Fixed in v1.0.1 and observed firing on the minute, running
   as uid 10001, taking the incremental branch. The weekly path is now exercised
   end to end; what has still never been observed is an *unattended* Friday run.
-- **Assortment drift, measured twice:** 27,225 → 27,124 over ten days, then
-  27,121 → 27,071 over four. Both land at roughly 10–12 products a day, so a
-  week costs ~70–85 products, about 0.3% of the assortment. Weekly is the right
-  cadence, and this is now measured rather than assumed. Wine is nearly all the
-  churn — 43 of that 50.
+- **Assortment churn is ~100 products a day; net drift is ~12.** Measuring net
+  change badly understates staleness. Between 2026-09-08 and 2026-09-11 the
+  mirror went 27,071 -> 27,107, a net of +36 over three days — but that run
+  pruned 132 and added 168, so ~300 products changed. Additions and delistings
+  nearly cancel, which makes the net look reassuring and is not.
+
+  A week of staleness is therefore ~700 products wrong, about 2.6% of the
+  assortment, not the 0.3% the net figure suggests. Weekly is still defensible;
+  twice-weekly would halve it. Earlier net-only readings (27,225 -> 27,124 over
+  ten days, 27,121 -> 27,071 over four) are consistent with this and were simply
+  measuring the wrong thing.
 - **The first unattended run happened on 2026-09-11 and did not publish.** Cron
   fired at 19:00:00 exactly, took the incremental branch, and the coverage fix
   held: `Vin / Smaksatt vin & fruktvin` reported 181 of 181 where it had
