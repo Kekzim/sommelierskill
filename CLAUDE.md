@@ -154,6 +154,30 @@ fetched, no failures, no `--only` filter, products not skipped. Pruning after a
 partial run would delete good products merely because their slice failed. A
 partial run logs that it skipped the prune. `--no-prune` opts out.
 
+**Slices that fail are retried once, at the end of the run.** A 429 is not a
+property of one request: Systembolaget refuses *everything* for minutes at a
+time, so the per-request backoff in `fetch.RetryingClient` spends its attempts
+against a door that is shut for the whole window, and consecutive slices fall
+one after another. The sweep costs nothing when nothing failed, and the
+remaining slices supply most of the cool-off for free (`--retry-delay`, default
+2 minutes, covers the rest).
+
+Measured on 2026-09-11: the throttle began at 19:13 and had lifted by 19:19, but
+three slices had already given up inside it — while enrichment and both store
+assortments, running minutes later, completed normally. The whole run was
+discarded over a throttle that had already passed.
+
+**The throttle has a consistent onset: roughly 12–13 minutes in, about 1,500
+requests deep** (2026-09-08 at 12 minutes, 2026-09-11 at 13). It lasts five to
+six minutes. That looks like a quota rather than a burst limit, so raising
+`--page-delay` would postpone it rather than avoid it — worth testing before
+anyone tries.
+
+**`sync_run.products` counts what was stored, not the sum of slice coverage.**
+Those differ once coverage is counted per slice: a product in two slices is
+covered by both and stored once, and a retried slice would be counted twice.
+`len(seen)` is the honest number.
+
 **A slice's coverage is counted separately from what the sync has stored.**
 `seen` is shared across slices so a product is stored once per sync; slice
 coverage uses its own set. Conflating them was a real bug: a product belonging
@@ -344,12 +368,16 @@ Known open items, so a fresh session does not have to rediscover them:
   week costs ~70–85 products, about 0.3% of the assortment. Weekly is the right
   cadence, and this is now measured rather than assumed. Wine is nearly all the
   churn — 43 of that 50.
-- **How often the prune was actually vetoed is unknown.** `sync_run.note`
-  records incomplete coverage, and only two runs exist on the NAS: 2026-09-04
-  logged "2 slices incompletely covered" (harmless — a first build has nothing
-  to prune) and 2026-09-08 was clean and pruned 50 products. The cross-slice
-  counting bug is fixed, but whether any *other* slice genuinely fails to
-  converge will only show up over several weekly runs. Watch the `note` column.
+- **The first unattended run happened on 2026-09-11 and did not publish.** Cron
+  fired at 19:00:00 exactly, took the incremental branch, and the coverage fix
+  held: `Vin / Smaksatt vin & fruktvin` reported 181 of 181 where it had
+  reported 176 of 178, and `incompleteSlices=0`. What killed it was the
+  throttle — three slices exhausted their retries inside it. The end-of-run
+  sweep (v1.0.4) is the answer to that and is the next thing to watch.
+- **Whether any slice genuinely fails to converge is still unknown.** Both
+  causes of `incomplete` seen so far were the counting bug, now fixed. The
+  `note` column in `sync_run` records it; it will take several weekly runs to
+  say. Watch that column rather than assuming.
 - **Sharing the MCP server with other people — considered, not built.** The auth
   change is small: `authorise` in `mcp-server/src/index.ts` does one exact match
   against `MCP_AUTH_TOKEN`, so a list of `name:token` pairs plus a loop is ~20

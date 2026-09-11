@@ -51,6 +51,11 @@ func main() {
 						Usage: "Delay between pages, to stay polite to an undocumented API",
 						Value: 100 * time.Millisecond,
 					},
+					&cli.DurationFlag{
+						Name:  "retry-delay",
+						Usage: "Cool-off before re-running slices that failed, once, at the end of the run",
+						Value: 2 * time.Minute,
+					},
 					&cli.StringFlag{
 						Name:  "snapshot-dir",
 						Usage: "Write a dated JSONL snapshot here. History cannot be reconstructed later",
@@ -253,7 +258,8 @@ func actionSync(ctx context.Context, cmd *cli.Command) error {
 
 	fetched, failures, incomplete := 0, 0, 0
 	if !skipProducts {
-		fetched, failures, incomplete, err = syncProducts(ctx, log, f, db, slices, started, snapshot)
+		fetched, failures, incomplete, err = syncProducts(
+			ctx, log, f, db, slices, started, snapshot, cmd.Duration("retry-delay"))
 		if err != nil {
 			return err
 		}
@@ -508,6 +514,7 @@ func syncProducts(
 	slices []fetch.Slice,
 	started time.Time,
 	snapshot *os.File,
+	retryDelay time.Duration,
 ) (fetched, failures, incomplete int, err error) {
 	w, err := db.NewWriter()
 	if err != nil {
@@ -519,8 +526,8 @@ func syncProducts(
 	// repeated passes over an unstable pagination order stay cheap.
 	seen := make(map[string]struct{}, 32000)
 
-	for i, s := range slices {
-		res, err := f.FetchSlice(ctx, s, started, seen, func(p normalize.Product) error {
+	fetchSlice := func(s fetch.Slice) (fetch.SliceResult, error) {
+		return f.FetchSlice(ctx, s, started, seen, func(p normalize.Product) error {
 			if snapshot != nil {
 				if _, err := snapshot.WriteString(p.Raw + "\n"); err != nil {
 					return err
@@ -528,11 +535,19 @@ func syncProducts(
 			}
 			return w.Put(p)
 		})
-		fetched += res.Unique
+	}
+
+	// Slices that failed outright. They are retried once, after every other
+	// slice has been walked -- see the note below.
+	var failed []fetch.Slice
+
+	for i, s := range slices {
+		res, err := fetchSlice(s)
 		if err != nil {
 			// One bad slice should not cost the whole run.
-			failures++
-			log.Error("slice failed", slog.String("slice", s.String()), slog.Any("error", err))
+			failed = append(failed, s)
+			log.Error("slice failed", slog.String("slice", s.String()),
+				slog.Any("error", err), slog.String("action", "queued for retry at the end of the run"))
 			if ctx.Err() != nil {
 				break
 			}
@@ -548,9 +563,61 @@ func syncProducts(
 			slog.Bool("complete", res.Complete),
 			slog.String("progress", fmt.Sprintf("%d/%d", i+1, len(slices))))
 	}
+
+	// A 429 is not a property of one request. Systembolaget refuses everything
+	// for minutes at a time, so the per-request backoff inside a slice spends
+	// its attempts against a door that is shut for the whole window, and
+	// consecutive slices fall one after another.
+	//
+	// Measured on 2026-09-11: the throttle began at 19:13 and had lifted by
+	// 19:19, but three slices had already given up inside it -- while
+	// enrichment and both store assortments, running minutes later, completed
+	// normally. A single sweep afterwards would have recovered all three and
+	// turned a discarded run into a published one.
+	//
+	// So retry the failures once, at the end, after a cool-off. It costs
+	// nothing when nothing failed, and the remaining slices supply most of the
+	// waiting for free. Re-fetching is safe: products are upserted by id, and
+	// slice coverage is counted per slice, so ids already in `seen` still count
+	// toward the retried slice being complete.
+	if len(failed) > 0 && ctx.Err() == nil {
+		log.Warn("retrying slices that failed",
+			slog.Int("slices", len(failed)), slog.Duration("after", retryDelay))
+		select {
+		case <-time.After(retryDelay):
+		case <-ctx.Done():
+		}
+	}
+	for _, s := range failed {
+		if ctx.Err() != nil {
+			failures++
+			continue
+		}
+		res, err := fetchSlice(s)
+		if err != nil {
+			failures++
+			log.Error("slice failed again; not retrying further",
+				slog.String("slice", s.String()), slog.Any("error", err))
+			continue
+		}
+		if !res.Complete {
+			incomplete++
+		}
+		log.Info("slice recovered on retry",
+			slog.String("slice", s.String()),
+			slog.Int("unique", res.Unique), slog.Int("expected", s.Est),
+			slog.Bool("complete", res.Complete))
+	}
+
 	if incomplete > 0 {
 		log.Warn("some slices could not be fully covered", slog.Int("slices", incomplete))
 	}
+
+	// Count what was actually stored rather than summing per-slice coverage.
+	// Those differ: a product belonging to two slices is covered by both but
+	// stored once, so the sum over-reports, and a retried slice would be
+	// counted twice.
+	fetched = len(seen)
 
 	if err := w.Commit(); err != nil {
 		return fetched, failures, incomplete, fmt.Errorf("committing products: %w", err)
