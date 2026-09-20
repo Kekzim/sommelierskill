@@ -178,8 +178,15 @@ full sync within an hour). A load-adaptive limiter fits all three; a quota fits
 none. So **raising `--page-delay` is the wrong lever** — it would stretch the
 run through more of the busy window, not less. Sync at a quiet hour instead.
 
-Two observations is not proof. The test is simply to watch: a scheduled run at a
-quiet hour that never trips, against the one 19:00 run that did.
+Since confirmed, as far as one slot can: moved to Friday 23:00, the run of
+2026-09-18 completed in 28 minutes with `errors=0` and no 429 at all. Every
+throttle on record now has one of two causes — a full walk started within the
+hour of another (2026-09-08 14:11, 2026-09-11 23:00), or the 19:00 peak slot
+(2026-09-11). Only the last was not self-inflicted, and 23:00 avoids it.
+
+Note that failed runs leave no trace in `sync_run`: the table lives in the work
+copy, which is discarded rather than published. An absent row is how you spot
+one after the fact.
 
 **`sync_run.products` counts what was stored, not the sum of slice coverage.**
 Those differ once coverage is counted per slice: a product in two slices is
@@ -371,17 +378,16 @@ Known open items, so a fresh session does not have to rediscover them:
   neither, silently. Fixed in v1.0.1 and observed firing on the minute, running
   as uid 10001, taking the incremental branch. The weekly path is now exercised
   end to end; what has still never been observed is an *unattended* Friday run.
-- **Assortment churn is ~100 products a day; net drift is ~12.** Measuring net
-  change badly understates staleness. Between 2026-09-08 and 2026-09-11 the
-  mirror went 27,071 -> 27,107, a net of +36 over three days — but that run
-  pruned 132 and added 168, so ~300 products changed. Additions and delistings
-  nearly cancel, which makes the net look reassuring and is not.
+- **Assortment churn is ~87 products a day; net drift is ~0.4.** Measuring net
+  change badly understates staleness. Over the week 2026-09-11 to 2026-09-18 the
+  mirror went 27,107 -> 27,110 — a net of **+3** — while that run pruned 304 and
+  added 307. Roughly 611 products changed. Additions and delistings nearly
+  cancel, which makes the net look reassuring and is not.
 
-  A week of staleness is therefore ~700 products wrong, about 2.6% of the
-  assortment, not the 0.3% the net figure suggests. Weekly is still defensible;
+  A week of staleness is therefore ~600 products wrong, about 2.3% of the
+  assortment, not the 0.01% the net figure suggests. Weekly is still defensible;
   twice-weekly would halve it. Earlier net-only readings (27,225 -> 27,124 over
-  ten days, 27,121 -> 27,071 over four) are consistent with this and were simply
-  measuring the wrong thing.
+  ten days, 27,121 -> 27,071 over four) were measuring the wrong thing.
 - **The first unattended run happened on 2026-09-11 and did not publish.** Cron
   fired at 19:00:00 exactly, took the incremental branch, and the coverage fix
   held: `Vin / Smaksatt vin & fruktvin` reported 181 of 181 where it had
