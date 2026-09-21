@@ -1,11 +1,16 @@
-# bolagetdb
+# sommelierskill
 
-A local, queryable mirror of Systembolaget's assortment, and the sommelier
-skill built on top of it.
+**A wine recommender that only ever names bottles you can actually buy.**
 
-Two things live here: `bolagetdb`, the Go tool that mirrors and normalises the
-assortment into SQLite, and `skill/`, the sommelier skill packaged for the
-Claude apps. See [Skill packages](#skill-packages).
+Three layers, each usable on its own:
+
+| | | |
+|---|---|---|
+| **`bolagetdb`** | Go | Mirrors Systembolaget's ~27,000-product assortment into SQLite and gives you SQL over it |
+| **`mcp-server/`** | TypeScript | Nine MCP tools over that mirror, plus live shelf-stock lookups — [details](#mcp-server) |
+| **`skill/`, `skill-claude-code/`** | — | The sommelier itself: persona, method, and the domain judgement that turns "something like a Burgundy" into a query — [details](#skill-packages) |
+
+The repository is named for the skill; `bolagetdb` is the tool underneath it.
 
 Systembolaget's API is a *product search*, not a query engine. It answers
 "show me red wines under 200 kr" well, and cannot answer "which wines taste of
@@ -198,6 +203,35 @@ succeeded, since pruning after a partial fetch would delete good data. Use
 years and stopped updating in November 2025, so there is no usable price
 history to import — but history cannot be reconstructed after the fact, and
 keeping it costs nothing.
+
+## MCP server
+
+`mcp-server/` exposes the mirror over the [Model Context
+Protocol](https://modelcontextprotocol.io) — streamable HTTP, stateless JSON,
+bearer auth — so any MCP client can reach it without a local checkout. Nine
+tools: product and tasting-note search, similarity, upcoming releases, store
+lookup, live stock, freshness, and an escape hatch that runs read-only SQL for
+the questions the purpose-built tools do not cover.
+
+The one tool with no equivalent anywhere, including Systembolaget's own site, is
+`upcoming_releases`. Limited drops are pre-announced roughly 17 days ahead and
+sit in the mirror with a future launch date, so "what drops on Friday at 10:00"
+is answerable before it happens — which matters because they sell out and are
+never restocked.
+
+```bash
+MCP_AUTH_TOKEN=$(openssl rand -hex 32) docker compose up -d
+curl -s http://127.0.0.1:8848/health
+```
+
+That brings up both the server and the sync job. The first sync builds the
+mirror from scratch and takes ~25 minutes; until it publishes, `/health`
+answers `{"ok":false}` and says why, rather than the server refusing to start.
+
+`deploy/unraid/` runs the same images on a NAS: a weekly sync container that
+publishes atomically, the server reading it from a read-only mount, and
+`TUNNEL.md` for reaching it from a phone through a Cloudflare Tunnel restricted
+to Anthropic's egress range. See [mcp-server/README.md](mcp-server/README.md).
 
 ## Skill packages
 
