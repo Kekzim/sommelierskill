@@ -109,7 +109,7 @@ no way to complete one. The WAF rule plus the bearer token is the right
 combination here.
 
 **Do not remove the LAN port binding.** Claude Code on your workstation talks to
-`192.168.10.109:8848` directly and never touches the public path. Two routes to
+`<unraid-lan-ip>:8848` directly and never touches the public path. Two routes to
 one server, each restricted to whoever needs it.
 
 ## If the DNS record refuses to publish

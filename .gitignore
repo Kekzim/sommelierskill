@@ -22,3 +22,6 @@
 
 # Filled-in deployment env (holds the auth token).
 deploy/unraid/.env
+
+# Machine-specific Make overrides (NAS_DB and friends).
+.makerc

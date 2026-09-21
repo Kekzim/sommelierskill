@@ -233,3 +233,8 @@ just `func(*url.Values)`, so the gap closes without forking.
 
 Please keep `--page-delay` non-zero. This is an undocumented API and an agent
 will otherwise hit it far harder than any human browsing session.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). The data is Systembolaget's; this repository
+contains none of it, only the tooling that mirrors it locally.

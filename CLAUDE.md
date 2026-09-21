@@ -42,8 +42,8 @@ it leaves the mirror half-refreshed, which `bolagetdb stats` will show as rows
 carrying two different `synced_at` dates.
 
 The store ids above are the ones this project cares about: **1001
-Wachtmeister** and **1002 Amiralen** are the owner's local shops in the
-Karlskrona area; **0102 Fältöversten** (Stockholm) is kept from testing. Store
+Wachtmeister** and **1002 Amiralen** are the maintainer's two local shops;
+**0102 Fältöversten** (Stockholm) is kept from testing. Store
 assortments are opt-in per store, roughly a minute each; mirroring all ~450
 would take about 11 hours. Find ids with `bolagetdb stores --search <town>`.
 
@@ -474,7 +474,7 @@ because the server is unreachable off the VPN.
 It is installed **user-wide**, not per-project, by a symlink:
 
 ```bash
-ln -s /home/kazzim/repos/sommelierskill/skill-claude-code ~/.claude/skills/sommelier
+ln -s "$(pwd)/skill-claude-code" ~/.claude/skills/sommelier   # from the repo root
 ```
 
 so it is active in every Claude Code session on that machine, not only when cwd

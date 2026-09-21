@@ -1,6 +1,11 @@
 BINARY := bolagetdb
 DB     := bolaget.db
 
+# Optional local overrides, gitignored: put machine-specific values here rather
+# than in the file everyone else reads. `NAS_DB = root@your-nas:/path/bolaget.db`
+# is the one this repo expects.
+-include .makerc
+
 .PHONY: build sync stores stats test fmt vet clean skill skill-nas snapshot-age
 
 build:
@@ -34,7 +39,8 @@ clean:
 # is actually kept current; see skill-nas below.
 SKILL_DB ?=
 SKILL_DB_FLAG = $(if $(SKILL_DB),--db $(SKILL_DB),)
-NAS_DB ?= root@unRaidNAS:/mnt/user/appdata/sommelier/bolaget.db
+# scp target for the NAS mirror. Override on the command line, or edit this.
+NAS_DB ?= root@YOUR-NAS:/mnt/user/appdata/sommelier/bolaget.db
 
 # Portable skill package for the Claude apps (claude.ai / desktop).
 # The local .claude/skills/sommelier skill targets Claude Code and drives the
@@ -67,6 +73,9 @@ snapshot-age:
 # Build the package from the NAS mirror, which the sync container refreshes
 # weekly. Asks for the NAS password: there is no key installed, deliberately.
 skill-nas:
+	@case "$(NAS_DB)" in *YOUR-NAS*) \
+	  echo "set NAS_DB to your server, e.g. make skill-nas NAS_DB=root@nas:/mnt/user/appdata/sommelier/bolaget.db"; \
+	  exit 1;; esac
 	@mkdir -p dist
 	@echo "copying the NAS mirror (~120 MB) -- this will ask for the NAS password"
 	scp $(NAS_DB) dist/nas-mirror.db
