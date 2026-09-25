@@ -2,7 +2,7 @@
 
 An MCP server over the local `bolagetdb` mirror of Systembolaget's assortment.
 Nine read-only tools plus one live shelf-stock check, served over streamable
-HTTP.
+HTTP — and, optionally, four more that keep your own wine cellar.
 
 The point is the same as the rest of this repo: Systembolaget's own API is a
 product search, not a query engine — no aggregation, no boolean logic, no
@@ -13,6 +13,7 @@ with.
 
 ```bash
 npm install && npm run build && npm start
+npm test    # node's built-in runner; covers the cellar
 ```
 
 | Variable | Default | Meaning |
@@ -22,9 +23,11 @@ npm install && npm run build && npm start
 | `PORT` | `8848` | |
 | `MCP_AUTH_TOKEN` | *unset* | Bearer token. **Unset means no auth at all.** |
 | `SYSTEMBOLAGET_API_KEY` | *unset* | Enables live stock checks; everything else works without it |
+| `CELLAR_DB_PATH` | *unset* | Your wine cellar, a writable SQLite file. **Unset means no cellar tools**, and the server stays read-only |
 | `ALLOWED_ORIGINS` | *unset* | Comma-separated origins to allow. **Unset means no origin checking**, which is correct behind a tunnel; set it only for a loopback-bound server a browser could reach |
 
-`GET /health` reports the product count and the resolved database path. The MCP
+`GET /health` reports the product count, the resolved database path and, when
+enabled, the cellar's path and bottle count. The MCP
 endpoint is `POST /mcp`.
 
 The mirror is **not** in the repo. Build it with `bolagetdb sync` first — see the
@@ -43,6 +46,36 @@ repo README.
 | `systembolaget_check_stock` | Live shelf count and shelf position — the only tool that leaves the mirror |
 | `systembolaget_data_freshness` | Last sync, coverage, mirrored stores |
 | `systembolaget_query` | Read-only SQL escape hatch for aggregation and odd joins |
+
+With `CELLAR_DB_PATH` set, four more:
+
+| Tool | For |
+|---|---|
+| `systembolaget_cellar_list` | What is in the cellar: bottles, location, drinking window, price paid, your ratings and notes — and which wines still need describing |
+| `systembolaget_cellar_add` | Bottles in — by Systembolaget product id or shelf-label number, or by name for anything bought elsewhere |
+| `systembolaget_cellar_update` | Move, re-date, annotate, correct a count, or fill in a profile of a wine nobody describes |
+| `systembolaget_cellar_remove` | Bottles out — drunk, given away, sold or broken — with your rating and a note |
+
+### What to enter for a wine Systembolaget does not sell
+
+Claude translates a spreadsheet row or a line of chat into these fields, so any
+readable format works. Only the first four are needed.
+
+| Needed | From the label, if printed | Yours, optional |
+|---|---|---|
+| House (`producer`) | Blend with % (`grapes`) | Price per bottle, date, where bought |
+| Cuvée (`name`) | Dosage in g/L (`sugar_g_l`) | Location in the cellar |
+| Vintage, or NV | Style words: Blanc de Blancs, Extra Brut… | Drinking window — or leave it for Claude to estimate |
+| Bottles | Base year (NV), disgorgement date, alcohol, bottle size | Notes |
+
+```
+6 × Egly-Ouriet Brut Tradition, NV, base 2019, disgorged 03/2024, 2 g/L, PN 70% CH 30%, Grand Cru, rack B
+```
+
+(Illustrative values, not that wine's real figures.) Country, region and
+category are set by Claude; the profile and its sources are Claude's to write
+afterwards, working through `needs_profile`. For a bottle bought at
+Systembolaget, the "Nr" from the receipt, the vintage and the count are enough.
 
 ### Examples
 
@@ -109,6 +142,34 @@ invisible until a real client tried. DNS-rebinding protection is worth having
 for a server bound to localhost; behind a tunnel and an IP allowlist it only
 produces false negatives.
 
+**The cellar is a separate file, and the only thing this server writes.** The
+mirror is opened read-only and replaced by every weekly sync, so nothing written
+into it would survive a Friday. The cellar is its own SQLite file on its own
+writable mount, and the query tool cannot reach it. It is also the only data
+here that cannot be rebuilt: back it up. It stays in rollback-journal mode so
+that `cellar.db` alone is a complete copy between writes.
+
+**Cellar entries carry their own identity.** Adding a Systembolaget wine copies
+its name, producer, region, grapes, tasting note and taste clocks into the
+cellar, instead of looking them up later. Two reasons. The mirror prunes
+delisted products, and a wine kept for years has usually left the assortment by
+the time it is opened. And, measured: Systembolaget keeps a product's id **and**
+number when the vintage changes —
+49 wines did between the snapshots of 2026-08-20 and 2026-08-25 — so a live
+lookup of last year's 2022 returns the 2024's note and price as if nothing had
+changed. The copied note is only taken when the vintages match, and the listing
+flags when Systembolaget has moved on to a different vintage.
+
+**A cellar wine has three voices, stored apart.** Systembolaget's note, copied
+for that vintage; the user's own notes and ratings; and, for wines nobody else
+describes — grower Champagne, bottles from travels — a profile Claude writes,
+which the server refuses to store without its sources and dates when written.
+Label facts (dosage, base year, disgorgement) are separate fields the user
+fills from the bottle: a non-vintage cuvée changes with every release, so a
+house's current technical sheet can describe a different wine from the one on
+the rack. A cellar written by the first release gains these columns the first
+time it is opened.
+
 **Auth is on even inside the network.** The server is reachable only over the
 VPN, but a private network is not an authorisation boundary. Set
 `MCP_AUTH_TOKEN`; the check is constant-time.
@@ -124,8 +185,10 @@ docker compose up -d
 
 Two services share one volume. `sync` writes it: it refreshes the mirror on a
 schedule and publishes a copy. `mcp` mounts the same volume **read-only** and
-serves it. The MCP port binds to `127.0.0.1` unless `BIND_ADDR` says otherwise —
-set that to the VPN address to reach it from another machine.
+serves it. `mcp` also mounts a second, writable `cellar` volume; set
+`CELLAR_DB_PATH=` (empty) in `.env` to run without a cellar. The MCP port binds
+to `127.0.0.1` unless `BIND_ADDR` says otherwise — set that to the VPN address
+to reach it from another machine.
 
 With an empty volume the first run builds the mirror from scratch, which takes
 about 25 minutes. The server starts anyway and reports the missing database
@@ -227,5 +290,5 @@ curl -s -H 'Authorization: Bearer YOUR_MCP_AUTH_TOKEN' \
      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-Nine tools come back. A 401 means the token does not match; a connection refusal
+Nine tools come back, thirteen with the cellar enabled. A 401 means the token does not match; a connection refusal
 usually means `BIND_ADDR` is still `127.0.0.1` on the server.

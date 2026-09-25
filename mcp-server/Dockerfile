@@ -1,4 +1,5 @@
-# The MCP server. Reads the published mirror; never writes it.
+# The MCP server. Reads the published mirror; never writes it. Writes only the
+# optional cellar, which lives in its own directory.
 FROM node:26-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -14,6 +15,10 @@ RUN npm run build
 
 FROM node:26-alpine AS runtime
 RUN addgroup -g 10001 -S bolaget && adduser -u 10001 -S bolaget -G bolaget
+# The cellar's mount point. A named volume copies this directory's ownership
+# when it is first created, so it starts out writable by uid 10001; a bind mount
+# does not, and has to be chowned on the host (see the runbook).
+RUN mkdir -p /cellar && chown bolaget:bolaget /cellar
 WORKDIR /app
 COPY --from=deps --chown=bolaget:bolaget /app/node_modules ./node_modules
 COPY --from=build --chown=bolaget:bolaget /app/dist ./dist

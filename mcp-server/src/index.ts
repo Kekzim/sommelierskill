@@ -5,11 +5,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { Mirror } from "./db.js";
+import { Cellar } from "./cellar.js";
 import { registerSearchTools } from "./tools/search.js";
 import { registerProductTools } from "./tools/product.js";
 import { registerReleaseTools } from "./tools/releases.js";
 import { registerStoreTools } from "./tools/stores.js";
 import { registerMetaTools } from "./tools/meta.js";
+import { registerCellarTools } from "./tools/cellar.js";
 
 /**
  * Resolution mirrors the Go CLI's dbPath: an explicit path wins, otherwise the
@@ -20,8 +22,11 @@ const port = Number(process.env.PORT ?? 8848);
 const host = process.env.HOST ?? "127.0.0.1";
 const authToken = process.env.MCP_AUTH_TOKEN;
 const apiKey = process.env.SYSTEMBOLAGET_API_KEY;
+// Optional. Unset means no cellar tools at all -- the server stays read-only.
+const cellarPath = process.env.CELLAR_DB_PATH || undefined;
 
 const mirror = new Mirror(dbPath);
+const cellar = cellarPath ? new Cellar(cellarPath, mirror) : null;
 
 function buildServer(): McpServer {
   const server = new McpServer({ name: "systembolaget-mcp-server", version: "1.0.0" });
@@ -30,6 +35,7 @@ function buildServer(): McpServer {
   registerReleaseTools(server, mirror);
   registerStoreTools(server, mirror, apiKey);
   registerMetaTools(server, mirror);
+  if (cellar) registerCellarTools(server, cellar);
   return server;
 }
 
@@ -92,12 +98,26 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_req, res) => {
+  const body: Record<string, unknown> = { ok: true, db: dbPath };
   try {
     const row = mirror.get<{ n: number }>("SELECT count(*) AS n FROM product");
-    res.json({ ok: true, products: row?.n ?? 0, db: dbPath });
+    body.products = row?.n ?? 0;
   } catch (err) {
-    res.status(503).json({ ok: false, error: (err as Error).message, db: dbPath });
+    body.ok = false;
+    body.error = (err as Error).message;
   }
+  // A cellar that cannot be written fails health too: unlike the mirror it
+  // cannot be rebuilt, so a broken one should be loud rather than discovered
+  // when a bottle fails to save.
+  if (cellar) {
+    try {
+      body.cellar = { path: cellar.path, ...cellar.summary() };
+    } catch (err) {
+      body.ok = false;
+      body.cellar = { path: cellar.path, error: (err as Error).message };
+    }
+  }
+  res.status(body.ok ? 200 : 503).json(body);
 });
 
 /**
@@ -140,10 +160,12 @@ app.listen(port, host, () => {
   console.error(`  database:   ${dbPath}`);
   console.error(`  auth:       ${authToken ? "bearer token required" : "DISABLED (set MCP_AUTH_TOKEN)"}`);
   console.error(`  live stock: ${apiKey ? "enabled" : "disabled (set SYSTEMBOLAGET_API_KEY)"}`);
+  console.error(`  cellar:     ${cellarPath ?? "disabled (set CELLAR_DB_PATH)"}`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
+    cellar?.close();
     mirror.close();
     process.exit(0);
   });

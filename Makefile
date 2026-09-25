@@ -115,5 +115,5 @@ release:
 	docker push $(MCP_IMAGE):latest
 	@echo
 	@echo "pushed $(VERSION) and latest."
-	@echo "On the NAS: set IMAGE_TAG=$(VERSION) in .env, then"
-	@echo "  docker compose pull && docker compose up -d"
+	@echo "On the NAS: set IMAGE_TAG=$(VERSION) in .env, then ./run.sh"
+	@echo "  (deploy/unraid/RUNBOOK.md; the NAS runs plain docker run, not Compose)"
