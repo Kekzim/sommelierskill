@@ -383,22 +383,28 @@ fresh-database branch used to be for.
 
 Known open items, so a fresh session does not have to rediscover them:
 
-- **The cellar is built but not deployed (branch `cellar`, as of 2026-09-25).**
-  Four optional tools behind `CELLAR_DB_PATH`, including labelled profiles for
-  wines Systembolaget does not describe — the maintainer's Champagne, mostly.
-  Code, 17 tests (`cd mcp-server && npm test`), docs and both skills are on the
-  branch; `main` does not have it. **Never verified: the container image.** The
-  build hung at `npm ci` on the workstation's network (Cloudflare WARP
-  suspected; the same install outside Docker took seconds), so the first image
-  build, and the claim that a fresh named volume at `/cellar` inherits uid 10001,
-  are both untested. Remaining, in order: `make release VERSION=v1.1.0` from
-  this branch; on the NAS create `/mnt/user/appdata/sommelier-cellar` owned by
-  10001, set `CELLAR_DIR` and `IMAGE_TAG` in `.env`, `./run.sh mcp`, confirm
-  `/health` shows `cellar`, reconnect Claude's connector; rebuild and re-upload
-  the apps skill (`make skill-nas`) so claude.ai gets the cellar rules; merge to
-  `main` once it works. Then the maintainer enters the Champagnes — the fields
-  are listed in `mcp-server/README.md` — and Claude fills in profiles from the
-  `needs_profile` queue.
+- **The cellar is deployed (v1.1.0, 2026-09-25).** Four optional tools behind
+  `CELLAR_DB_PATH`, including labelled profiles for wines Systembolaget does
+  not describe — the maintainer's Champagne, mostly. Verified on the NAS end to
+  end: `run.sh` with `CELLAR_DIR=/mnt/user/appdata/sommelier-cellar`, `/health`
+  reporting the cellar, `cellar.db` created by uid 10001 in rollback-journal
+  mode, and `cellar_list` answering through the Cloudflare tunnel.
+
+  The image that "hung at `npm ci`" built in seconds on another network; the
+  hang was Cloudflare WARP on the office machine, not the Dockerfile. A fresh
+  named volume at `/cellar` does come up owned by 10001, as claimed.
+
+  One trap met on the way, worth knowing for any future option: the NAS keeps
+  its own copy of `run.sh`, and an old copy ignores a new `.env` variable while
+  still reporting success. Copy `deploy/unraid/run.sh` over before relying on a
+  new setting; the new one prints `cellar <dir>` or `cellar disabled` so the
+  difference is visible.
+
+  Remaining: re-upload the apps skill (`make skill-nas`) so claude.ai has the
+  cellar rules; confirm the Appdata Backup plugin covers
+  `/mnt/user/appdata/sommelier-cellar`, the only directory here that cannot be
+  rebuilt; then enter the Champagnes — fields in `mcp-server/README.md` — and
+  work through the `needs_profile` queue.
 - **The scheduled sync is verified as of 2026-09-08.** It had never fired before
   that — busybox crond needs root and a non-nologin shell, and the image gave it
   neither, silently. Fixed in v1.0.1 and observed firing on the minute, running
