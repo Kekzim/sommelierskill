@@ -57,6 +57,29 @@ test("the cellar tools round-trip through MCP", async () => {
     const one = await client.callTool({ name: "systembolaget_cellar_list", arguments: { wine_id: id } });
     assert.match(text(one), /Your rating\*\*: 4\/5/);
     assert.match(text(one), /: 1 drunk — 4\/5, "too young, still lovely"/);
+
+    const champagne = await client.callTool({
+      name: "systembolaget_cellar_add",
+      arguments: { producer: "Egly-Ouriet", name: "Brut Tradition", vintage: null, sugar_g_l: 2, disgorged_on: "2024-03", quantity: 6 },
+    });
+    const cid = (champagne.structuredContent as { wine: { id: number } }).wine.id;
+    const queue = await client.callTool({ name: "systembolaget_cellar_list", arguments: { needs_profile: true } });
+    assert.match(text(queue), /Brut Tradition/);
+
+    const unsourced = await client.callTool({
+      name: "systembolaget_cellar_update",
+      arguments: { wine_id: cid, claude_profile: "Vinous." },
+    });
+    assert.equal(unsourced.isError, true);
+
+    await client.callTool({
+      name: "systembolaget_cellar_update",
+      arguments: { wine_id: cid, claude_profile: "Vinous.", claude_sources: "general knowledge, unverified" },
+    });
+    const shown = text(await client.callTool({ name: "systembolaget_cellar_list", arguments: { wine_id: cid } }));
+    assert.match(shown, /\*\*Label\*\*: 2 g\/L sugar · disgorged 2024-03/);
+    assert.match(shown, /\*\*Claude's profile\*\* \(\d{4}-\d{2}-\d{2}\): Vinous\./);
+    assert.match(shown, /Sources\*: general knowledge, unverified/);
   } finally {
     await client.close();
     cellar.close();

@@ -383,6 +383,22 @@ fresh-database branch used to be for.
 
 Known open items, so a fresh session does not have to rediscover them:
 
+- **The cellar is built but not deployed (branch `cellar`, as of 2026-09-25).**
+  Four optional tools behind `CELLAR_DB_PATH`, including labelled profiles for
+  wines Systembolaget does not describe — the maintainer's Champagne, mostly.
+  Code, 17 tests (`cd mcp-server && npm test`), docs and both skills are on the
+  branch; `main` does not have it. **Never verified: the container image.** The
+  build hung at `npm ci` on the workstation's network (Cloudflare WARP
+  suspected; the same install outside Docker took seconds), so the first image
+  build, and the claim that a fresh named volume at `/cellar` inherits uid 10001,
+  are both untested. Remaining, in order: `make release VERSION=v1.1.0` from
+  this branch; on the NAS create `/mnt/user/appdata/sommelier-cellar` owned by
+  10001, set `CELLAR_DIR` and `IMAGE_TAG` in `.env`, `./run.sh mcp`, confirm
+  `/health` shows `cellar`, reconnect Claude's connector; rebuild and re-upload
+  the apps skill (`make skill-nas`) so claude.ai gets the cellar rules; merge to
+  `main` once it works. Then the maintainer enters the Champagnes — the fields
+  are listed in `mcp-server/README.md` — and Claude fills in profiles from the
+  `needs_profile` queue.
 - **The scheduled sync is verified as of 2026-09-08.** It had never fired before
   that — busybox crond needs root and a non-nologin shell, and the image gave it
   neither, silently. Fixed in v1.0.1 and observed firing on the minute, running

@@ -22,6 +22,14 @@ import { SQL_TIMEOUT_MS } from "./constants.js";
  * changes -- 49 did in one five-day window -- so a live lookup of a 2022 bought
  * last year returns the 2024's tasting note and price, with nothing to say it
  * is a different wine.
+ *
+ * Much of a cellar will never have come from Systembolaget at all -- grower
+ * Champagne, bottles from travels -- so a wine can also carry a profile written
+ * by Claude, kept apart from Systembolaget's note and the user's own and always
+ * stored with its sources. Facts that belong to one bottle (disgorgement, base
+ * year, dosage) come from its label: a non-vintage cuvée changes with every
+ * release, so the house's current sheet may describe a different wine from the
+ * one on the rack.
  */
 
 export const REMOVAL_REASONS = ["drunk", "gift", "sold", "broken", "other"] as const;
@@ -50,6 +58,13 @@ export interface WineFields {
   drink_from?: number | null;
   drink_until?: number | null;
   notes?: string | null;
+  abv?: number | null;
+  sugar_g_l?: number | null;
+  style?: string | null;
+  base_vintage?: number | null;
+  disgorged_on?: string | null;
+  claude_profile?: string | null;
+  claude_sources?: string | null;
 }
 
 const EDITABLE: (keyof WineFields)[] = [
@@ -68,6 +83,13 @@ const EDITABLE: (keyof WineFields)[] = [
   "drink_from",
   "drink_until",
   "notes",
+  "abv",
+  "sugar_g_l",
+  "style",
+  "base_vintage",
+  "disgorged_on",
+  "claude_profile",
+  "claude_sources",
 ];
 
 export interface WineRow {
@@ -95,6 +117,14 @@ export interface WineRow {
   clock_tannin: number | null;
   clock_sweetness: number | null;
   clock_fruitacid: number | null;
+  abv: number | null;
+  sugar_g_l: number | null;
+  style: string | null;
+  base_vintage: number | null;
+  disgorged_on: string | null;
+  claude_profile: string | null;
+  claude_sources: string | null;
+  claude_profiled_on: string | null;
   added_at: string;
   updated_at: string;
 }
@@ -132,13 +162,36 @@ export interface ListFilter {
   category?: string;
   drink_window?: DrinkWindow;
   min_rating?: number;
+  needs_profile?: boolean;
   include_empty?: boolean;
   sort?: CellarSort;
   limit: number;
   offset: number;
 }
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+
+/**
+ * Columns added after the first release. Declared once: a fresh cellar and an
+ * old one both get them from this list, so the two can never disagree.
+ */
+const ADDED_COLUMNS: [name: string, decl: string][] = [
+  ["abv", "REAL"],
+  // Residual sugar -- for sparkling wine, the dosage. Systembolaget reports
+  // g/100 ml; stored here per litre, the unit a Champagne label uses.
+  ["sugar_g_l", "REAL"],
+  // As the label says it: 'Blanc de Blancs', 'Extra Brut', 'Grand Cru'.
+  ["style", "TEXT"],
+  // For a non-vintage wine, the harvest most of it comes from.
+  ["base_vintage", "INTEGER"],
+  // YYYY, YYYY-MM or YYYY-MM-DD, from the back label.
+  ["disgorged_on", "TEXT"],
+  // Claude's own profile of a wine nobody else describes, never blurred with
+  // Systembolaget's note or the user's, and never stored without its sources.
+  ["claude_profile", "TEXT"],
+  ["claude_sources", "TEXT"],
+  ["claude_profiled_on", "TEXT"],
+];
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wine (
@@ -189,6 +242,16 @@ CREATE TABLE IF NOT EXISTS event (
 CREATE INDEX IF NOT EXISTS idx_event_wine ON event(wine_id);
 `;
 
+/** A profile without its sources is indistinguishable from an invented one. */
+function requireSources(f: WineFields): void {
+  if (f.claude_profile && !f.claude_sources) {
+    throw new Error(
+      "A claude_profile needs claude_sources: where each part came from -- the house's " +
+        "technical sheet, a review, or 'general knowledge, unverified'.",
+    );
+  }
+}
+
 /** Today in the server's timezone, which the containers set to Europe/Stockholm. */
 export function today(): string {
   return new Date().toLocaleDateString("sv-SE");
@@ -213,6 +276,12 @@ export class Cellar {
       const db = new DatabaseSync(this.path);
       db.exec(`PRAGMA busy_timeout = ${SQL_TIMEOUT_MS}; PRAGMA foreign_keys = ON;`);
       db.exec(SCHEMA);
+      const have = new Set(
+        (db.prepare(`SELECT name FROM pragma_table_info('wine')`).all() as { name: string }[]).map((c) => c.name),
+      );
+      for (const [name, decl] of ADDED_COLUMNS) {
+        if (!have.has(name)) db.exec(`ALTER TABLE wine ADD COLUMN ${name} ${decl}`);
+      }
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.db = db;
       return db;
@@ -285,6 +354,7 @@ export class Cellar {
   add(
     input: WineFields & { product_id?: string; product_number?: string; quantity: number },
   ): { wine: WineRow; merged: boolean; warnings: string[] } {
+    requireSources(input);
     const warnings: string[] = [];
     const fields: Record<string, unknown> = {};
     let productId: string | null = null;
@@ -303,7 +373,8 @@ export class Cellar {
       }
       const p = this.mirror.get<Record<string, unknown>>(
         `SELECT product_id, product_number, full_name, producer, vintage, country, origin1, origin2,
-                cat2, volume_ml, taste, clock_body, clock_tannin, clock_sweetness, clock_fruitacid
+                cat2, volume_ml, abv, sugar_g_per_100ml, taste,
+                clock_body, clock_tannin, clock_sweetness, clock_fruitacid
          FROM product WHERE ${match.join(" AND ")}`,
         ...binds,
       );
@@ -339,7 +410,10 @@ export class Cellar {
         volume_ml: p.volume_ml,
       });
       if (vintage === listed) {
+        const sugar = p.sugar_g_per_100ml == null ? null : Math.round(Number(p.sugar_g_per_100ml) * 100) / 10;
         Object.assign(fields, {
+          abv: p.abv,
+          sugar_g_l: sugar,
           sb_taste: p.taste,
           clock_body: p.clock_body,
           clock_tannin: p.clock_tannin,
@@ -349,8 +423,8 @@ export class Cellar {
       } else {
         warnings.push(
           `Systembolaget now lists this wine as the ${listed ?? "non-vintage"}; yours is the ` +
-            `${vintage ?? "non-vintage"}. Its tasting note and taste clocks were not copied, ` +
-            `because they describe a different vintage.`,
+            `${vintage ?? "non-vintage"}. Its tasting note, taste clocks, alcohol and sugar were ` +
+            `not copied, because they describe a different vintage.`,
         );
       }
     }
@@ -377,15 +451,16 @@ export class Cellar {
         // explicitly (a new location, price, note) is applied.
         const explicit = EDITABLE.filter((k) => input[k] !== undefined);
         const sets = ["quantity = quantity + ?", "updated_at = ?", ...explicit.map((k) => `${k} = ?`)];
-        db.prepare(`UPDATE wine SET ${sets.join(", ")} WHERE id = ?`).run(
-          input.quantity,
-          now,
-          ...explicit.map((k) => input[k] as never),
-          id,
-        );
+        const args: unknown[] = [input.quantity, now, ...explicit.map((k) => input[k])];
+        if (input.claude_profile !== undefined) {
+          sets.push("claude_profiled_on = ?");
+          args.push(input.claude_profile ? today() : null);
+        }
+        db.prepare(`UPDATE wine SET ${sets.join(", ")} WHERE id = ?`).run(...(args as never[]), id);
       } else {
         const row: Record<string, unknown> = {
           ...fields,
+          ...(fields.claude_profile ? { claude_profiled_on: today() } : {}),
           product_id: productId,
           product_number: productNumber,
           quantity: input.quantity,
@@ -410,6 +485,7 @@ export class Cellar {
    * correcting a miscount, not for bottles drunk, which go through remove().
    */
   update(id: number, patch: WineFields & { quantity?: number }): WineRow {
+    requireSources(patch);
     return this.tx((db) => {
       const before = this.wine(db, id);
       if (!before) throw new Error(`No wine #${id} in the cellar. List the cellar to find its id.`);
@@ -428,6 +504,10 @@ export class Cellar {
           "clock_sweetness = NULL",
           "clock_fruitacid = NULL",
         );
+      }
+      if (patch.claude_profile !== undefined) {
+        sets.push("claude_profiled_on = ?");
+        args.push(patch.claude_profile ? today() : null);
       }
 
       if (patch.quantity !== undefined && patch.quantity !== before.quantity) {
@@ -496,9 +576,10 @@ export class Cellar {
     if (f.search) {
       const like = `%${f.search}%`;
       where.push(
-        `(name LIKE ? OR producer LIKE ? OR region LIKE ? OR country LIKE ? OR grapes LIKE ? OR notes LIKE ?)`,
+        `(name LIKE ? OR producer LIKE ? OR region LIKE ? OR country LIKE ? OR grapes LIKE ?
+          OR style LIKE ? OR notes LIKE ? OR claude_profile LIKE ?)`,
       );
-      params.push(like, like, like, like, like, like);
+      params.push(like, like, like, like, like, like, like, like);
     }
     if (f.category) {
       where.push("category = ? COLLATE NOCASE");
@@ -524,6 +605,10 @@ export class Cellar {
       case "unknown":
         where.push("drink_from IS NULL AND drink_until IS NULL");
         break;
+    }
+    if (f.needs_profile) {
+      // Nobody has described it: no Systembolaget note, no profile yet.
+      where.push("sb_taste IS NULL AND claude_profile IS NULL");
     }
     if (f.min_rating !== undefined) {
       where.push("avg_rating >= ?");

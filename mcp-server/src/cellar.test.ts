@@ -5,7 +5,7 @@ import { chmodSync, mkdtempSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Mirror } from "./db.js";
-import { Cellar, thisYear } from "./cellar.js";
+import { Cellar, thisYear, today } from "./cellar.js";
 
 interface Fixture {
   product_id: string;
@@ -29,12 +29,13 @@ function writeMirror(path: string, products: Fixture[]): void {
       product_id TEXT PRIMARY KEY, product_number TEXT, full_name TEXT, producer TEXT,
       vintage INTEGER, country TEXT, origin1 TEXT, origin2 TEXT, cat2 TEXT, volume_ml INTEGER,
       price REAL, availability TEXT, is_discontinued INTEGER DEFAULT 0, taste TEXT,
-      clock_body INTEGER, clock_tannin INTEGER, clock_sweetness INTEGER, clock_fruitacid INTEGER);
+      clock_body INTEGER, clock_tannin INTEGER, clock_sweetness INTEGER, clock_fruitacid INTEGER,
+      abv REAL, sugar_g_per_100ml REAL);
     CREATE TABLE product_grape (product_id TEXT, grape TEXT, raw_name TEXT);`);
   for (const p of products) {
     db.prepare(
       `INSERT INTO product VALUES (?, ?, ?, ?, ?, 'Frankrike', 'Frankrike sydväst', 'Madiran',
-         'Rött vin', 750, ?, ?, 0, ?, 11, 11, 1, 7)`,
+         'Rött vin', 750, ?, ?, 0, ?, 11, 11, 1, 7, 14.5, 0.35)`,
     ).run(p.product_id, p.product_number, p.full_name, p.producer, p.vintage, p.price, p.availability ?? "order_only", p.taste);
     for (const g of p.grapes ?? []) {
       db.prepare(`INSERT INTO product_grape VALUES (?, ?, ?)`).run(p.product_id, g, g);
@@ -86,6 +87,8 @@ test("adding by product number copies identity, grapes and the tasting note", ()
   assert.equal(wine.grapes, "Cabernet sauvignon, Tannat");
   assert.equal(wine.sb_taste, MONTUS.taste);
   assert.equal(wine.clock_tannin, 11);
+  assert.equal(wine.abv, 14.5);
+  assert.equal(wine.sugar_g_l, 3.5, "g/100 ml becomes g/L without float noise");
   assert.equal(wine.quantity, 3);
 });
 
@@ -105,6 +108,7 @@ test("an older vintage under the same id is a separate entry without the new vin
   assert.equal(wine.vintage, 2010);
   assert.equal(wine.sb_taste, null);
   assert.equal(wine.clock_tannin, null);
+  assert.equal(wine.sugar_g_l, null);
   assert.match(warnings[0], /lists this wine as the 2012; yours is the 2010/);
 });
 
@@ -228,4 +232,71 @@ test("an unwritable directory is explained as a permissions problem", { skip: pr
   const c = new Cellar(join(locked, "cellar.db"), mirror);
   assert.throws(() => c.summary(), /chown -R 10001:10001/);
   chmodSync(locked, 0o700);
+});
+
+test("a Champagne nobody describes is queued, filled in with sources, and dated", () => {
+  const { wine } = cellar.add({
+    producer: "Egly-Ouriet",
+    name: "Brut Tradition",
+    vintage: null,
+    category: "Mousserande vin",
+    grapes: "Pinot noir 70%, Chardonnay 30%",
+    style: "Grand Cru, Brut",
+    sugar_g_l: 2,
+    base_vintage: 2019,
+    disgorged_on: "2024-03",
+    quantity: 6,
+  });
+  cellar.add({ product_id: "56305", quantity: 1 }); // described by Systembolaget
+
+  const queue = () => cellar.list({ needs_profile: true, limit: 10, offset: 0 }).items.map((w) => w.name);
+  assert.deepEqual(queue(), ["Brut Tradition"]);
+
+  assert.throws(
+    () => cellar.update(wine.id, { claude_profile: "Vinous and Pinot-led." }),
+    /needs claude_sources/,
+  );
+  const filled = cellar.update(wine.id, {
+    claude_profile: "Vinous and Pinot-led.",
+    claude_sources: "house sheet (https://example.com); drinking window: Claude's estimate",
+    drink_from: 2025,
+    drink_until: 2030,
+  });
+  assert.equal(filled.claude_profiled_on, today());
+  assert.equal(filled.base_vintage, 2019, "label facts are untouched by a profile");
+  assert.deepEqual(queue(), []);
+  assert.equal(cellar.list({ search: "Grand Cru", limit: 10, offset: 0 }).total, 1);
+  assert.equal(cellar.list({ search: "Pinot-led", limit: 10, offset: 0 }).total, 1);
+
+  const cleared = cellar.update(wine.id, { claude_profile: null, claude_sources: null });
+  assert.equal(cleared.claude_profiled_on, null);
+  assert.deepEqual(queue(), ["Brut Tradition"]);
+});
+
+test("a cellar written by the first release gains the new columns and keeps its wines", () => {
+  const path = join(dir, "v1.db");
+  const old = new DatabaseSync(path);
+  // The first release's wine table, as it shipped.
+  old.exec(`
+    CREATE TABLE wine (
+      id INTEGER PRIMARY KEY, product_id TEXT, product_number TEXT, name TEXT NOT NULL,
+      producer TEXT, vintage INTEGER, country TEXT, region TEXT, category TEXT, grapes TEXT,
+      volume_ml INTEGER, quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+      purchase_price REAL, purchased_on TEXT, purchased_from TEXT, location TEXT,
+      drink_from INTEGER, drink_until INTEGER, notes TEXT, sb_taste TEXT, clock_body INTEGER,
+      clock_tannin INTEGER, clock_sweetness INTEGER, clock_fruitacid INTEGER,
+      added_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    INSERT INTO wine (name, quantity, added_at, updated_at) VALUES ('Old friend', 3, 'x', 'x');
+    PRAGMA user_version = 1;`);
+  old.close();
+
+  const upgraded = new Cellar(path, mirror);
+  assert.deepEqual(upgraded.summary(), { wines: 1, bottles: 3, value: null });
+  const w = upgraded.update(1, { disgorged_on: "2023", claude_profile: "x", claude_sources: "y" });
+  assert.equal(w.disgorged_on, "2023");
+  upgraded.close();
+
+  const check = new DatabaseSync(path);
+  assert.equal((check.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 2);
+  check.close();
 });

@@ -45,6 +45,34 @@ const wineFields = {
   drink_from: year.nullable().optional().describe("First year it is ready to drink"),
   drink_until: year.nullable().optional().describe("Last year it should be drunk by"),
   notes: z.string().trim().max(4000).nullable().optional().describe("The user's own notes about this wine"),
+  abv: z.number().min(0).max(80).nullable().optional().describe("Alcohol, % by volume"),
+  sugar_g_l: z
+    .number()
+    .min(0)
+    .max(400)
+    .nullable()
+    .optional()
+    .describe("Residual sugar in g/L -- for Champagne and other sparkling wine, the dosage"),
+  style: text(200, "Style words from the label, e.g. 'Blanc de Blancs, Extra Brut, Grand Cru'"),
+  base_vintage: year
+    .nullable()
+    .optional()
+    .describe("For a non-vintage wine: the base year, often printed on grower Champagne"),
+  disgorged_on: z
+    .string()
+    .regex(/^\d{4}(-\d{2}(-\d{2})?)?$/, "Use YYYY, YYYY-MM or YYYY-MM-DD")
+    .nullable()
+    .optional()
+    .describe("Disgorgement date from the back label: YYYY, YYYY-MM or YYYY-MM-DD"),
+  claude_profile: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4000)
+    .nullable()
+    .optional()
+    .describe("Your own profile of a wine nobody else describes: style, taste, what to eat with it. Requires claude_sources"),
+  claude_sources: text(2000, "Where the profile came from: URLs of the house's sheet or reviews, or 'general knowledge, unverified'"),
 };
 
 function checkWindow(from?: number | null, until?: number | null): string | null {
@@ -76,6 +104,15 @@ function wineMarkdown(w: ListedWine | WineRow, history?: EventRow[]): string {
     .join(" · ");
   if (ident) lines.push(`*${ident}*`);
 
+  const label = [
+    w.style,
+    w.abv != null ? `${w.abv}%` : null,
+    w.sugar_g_l != null ? `${w.sugar_g_l} g/L sugar` : null,
+    w.base_vintage != null ? `base ${w.base_vintage}` : null,
+    w.disgorged_on ? `disgorged ${w.disgorged_on}` : null,
+  ].filter(Boolean);
+  if (label.length) lines.push(`- **Label**: ${label.join(" · ")}`);
+
   const window = windowText(w);
   if (window) lines.push(`- **Drink**: ${window}`);
   if (w.location) lines.push(`- **Where**: ${w.location}`);
@@ -84,9 +121,13 @@ function wineMarkdown(w: ListedWine | WineRow, history?: EventRow[]): string {
     const how = [w.purchased_on, w.purchased_from].filter(Boolean).join(", ");
     lines.push(`- **Paid**: ${w.purchase_price != null ? kr(w.purchase_price) : "price not recorded"}${how ? ` (${how})` : ""}`);
   }
-  // Two kinds of tasting note, and they must never blur: Systembolaget's, for
-  // this vintage, and the user's own.
+  // Three voices, and they must never blur: Systembolaget's note for this
+  // vintage, Claude's profile with its sources, and the user's own.
   if (w.sb_taste) lines.push(`- **Systembolaget's note** (recorded when added): ${w.sb_taste}`);
+  if (w.claude_profile) {
+    lines.push(`- **Claude's profile** (${w.claude_profiled_on ?? "undated"}): ${w.claude_profile}`);
+    lines.push(`  - *Sources*: ${w.claude_sources ?? "none recorded"}`);
+  }
   if (w.notes) lines.push(`- **Your notes**: ${w.notes}`);
 
   if ("avg_rating" in w) {
@@ -150,7 +191,7 @@ export function registerCellarTools(server: McpServer, cellar: Cellar): void {
 
 Start here for "what should I open tonight", "what goes with lamb from what I have", and "what needs drinking soon". Check it too before recommending a purchase -- they may already own something that fits, or already have six of what you were about to suggest.
 
-Two kinds of tasting note appear and must not be confused: Systembolaget's, recorded for that exact vintage when the bottle was added, and the user's own notes and ratings. Quote the user's as theirs. Neither is a licence to invent one where both are missing.
+Three kinds of description appear and must not be confused: Systembolaget's note, recorded for that exact vintage when the bottle was added; Claude's profile, written for wines nobody else describes and stored with its sources; and the user's own notes and ratings. Quote the user's as theirs, and present Claude's as Claude's, with its sources.
 
 Args:
   - wine_id (number): one wine, with its full history of additions, bottles drunk, ratings and notes
@@ -158,6 +199,7 @@ Args:
   - category (string): Systembolaget's category name, e.g. 'Rött vin'
   - drink_window ('ready' | 'drink_soon' | 'not_yet' | 'unknown'): 'drink_soon' includes anything past its window, most urgent first
   - min_rating (number 1-5): wines the user has rated at least this highly -- "the ones I loved"
+  - needs_profile (boolean): wines with neither a Systembolaget note nor a Claude profile -- the queue for filling in
   - include_empty (boolean): include wines with no bottles left, for "what was that wine I had" (default: false)
   - sort ('drink_until' | 'name' | 'vintage' | 'added' | 'rating'), limit, offset, response_format
 
@@ -167,6 +209,7 @@ Examples:
   - "What should I open with lamb tonight?" -> drink_window='ready', then match on the taste clocks and notes
   - "Anything I should drink before it's too late?" -> drink_window='drink_soon'
   - "What was that Riesling I liked?" -> search='Riesling', include_empty=true, min_rating=4
+  - "Fill in the Champagnes I just added" -> needs_profile=true, then research each and systembolaget_cellar_update
 
 Error Handling:
   - An empty cellar returns a message saying so; wines are added with systembolaget_cellar_add.`,
@@ -177,6 +220,10 @@ Error Handling:
           category: z.string().optional().describe("Systembolaget's category name, e.g. 'Rött vin'"),
           drink_window: z.enum(DRINK_WINDOWS).optional().describe("Filter by drinking window relative to this year"),
           min_rating: z.number().min(1).max(5).optional().describe("Only wines the user rated at least this highly"),
+          needs_profile: z
+            .boolean()
+            .optional()
+            .describe("Only wines nobody has described yet: no Systembolaget note and no Claude profile"),
           include_empty: z.boolean().default(false).describe("Include wines with no bottles left (default: false)"),
           sort: z.enum(CELLAR_SORTS).default("drink_until").describe("Sort order (default: drink_until, soonest first)"),
           ...pagingSchema,
@@ -235,7 +282,7 @@ For anything bought at Systembolaget, pass 'product_id' from a search result, or
 
 Pass 'vintage' whenever the label shows one. Systembolaget keeps a product's id when the next vintage arrives, so the vintage it lists today may not be the bottle on the user's shelf. When they differ, the tasting note is deliberately not copied.
 
-Adding a Systembolaget wine already in the cellar in the same vintage tops up that entry rather than creating a second one. Wines bought elsewhere always create a new entry: give at least a name, and whatever else is known.
+Adding a Systembolaget wine already in the cellar in the same vintage tops up that entry rather than creating a second one. Wines bought elsewhere always create a new entry: give at least a name, and whatever the label says. For Champagne that is the house as producer, the cuvée as name, vintage or null for NV, and from the back label the blend in 'grapes' ('Chardonnay 60%, Pinot noir 40%'), dosage as sugar_g_l, base_vintage and disgorged_on when printed -- those belong to that bottle and change with every release.
 
 Args:
   - product_id (string): Systembolaget product id, from a search result
@@ -244,13 +291,16 @@ Args:
   - quantity (number): bottles added (default: 1)
   - producer, vintage, country, region, category, grapes, volume_ml: override or supply identity
   - purchase_price (per bottle, SEK), purchased_on (YYYY-MM-DD), purchased_from
+  - abv, sugar_g_l (dosage for sparkling), style, base_vintage, disgorged_on: label facts
   - location, drink_from, drink_until (years), notes
+  - claude_profile, claude_sources: see systembolaget_cellar_update
 
 Returns the wine as stored, whether an existing entry was topped up, and the cellar's new total.
 
 Examples:
   - "I just bought 3 of the Château Montus" -> find it, then product_id=<id>, quantity=3, purchased_from='Systembolaget'
   - "Add two bottles of the 2019 Barolo my uncle gave me" -> name, vintage=2019, quantity=2, purchased_from='gift'
+  - "Six Egly-Ouriet Brut Tradition, NV, 2 g/L, base 2019, disgorged March 2024" -> producer='Egly-Ouriet', name='Brut Tradition', vintage=null, sugar_g_l=2, base_vintage=2019, disgorged_on='2024-03', category='Mousserande vin', quantity=6
 
 Error Handling:
   - An unknown product_id or product_number returns an error suggesting a search, or adding by name.`,
@@ -295,22 +345,29 @@ Error Handling:
 
 A field left out is kept; a field set to null is cleared. Notes are replaced, not appended -- to add a line, send the old notes with the new line.
 
+This is also how a wine nobody describes gets filled in -- a grower Champagne, a bottle from a trip. Research first: the house's own technical sheet for that cuvée, then reputable reviews, and only then general knowledge. Write claude_profile in plain words -- style, how it tastes, what to eat with it, how it will age -- and give claude_sources, which is required: URLs, or 'general knowledge, unverified' for anything that is. Fill in missing label facts only when a source covers this exact bottle: a non-vintage cuvée changes blend, base year and dosage with every release, so the house's current sheet may describe a different wine from the one in the cellar. A drinking window you estimate goes in drink_from/drink_until, and the estimate is named in claude_sources.
+
 'quantity' sets the count outright and is recorded as a correction. Bottles drunk, given away or broken go through systembolaget_cellar_remove instead, which keeps the rating and the occasion.
 
 Args:
   - wine_id (number): from systembolaget_cellar_list
   - quantity (number): corrected bottle count
   - name, producer, vintage, country, region, category, grapes, volume_ml, purchase_price, purchased_on, purchased_from, location, drink_from, drink_until, notes
+  - abv, sugar_g_l, style, base_vintage, disgorged_on: label facts
+  - claude_profile, claude_sources: your profile and where it came from -- always together
 
 Returns the wine as stored.
 
 Examples:
   - "Moved the Barolos to the bottom rack" -> location
   - "That one is ready from 2028" -> drink_from=2028
+  - Filling in a Champagne: claude_profile='Pinot-led and vinous, ...', claude_sources='house tech sheet (url); drinking window: Claude's estimate'
+
 
 Error Handling:
   - An unknown wine_id returns an error; list the cellar to find it.
-  - Changing the vintage of a Systembolaget wine drops the copied tasting note, which described the old one.`,
+  - Changing the vintage of a Systembolaget wine drops the copied tasting note, which described the old one.
+  - A claude_profile without claude_sources is refused.`,
       inputSchema: z
         .object({
           wine_id: z.number().int().min(1).describe("Cellar wine id"),
