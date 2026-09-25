@@ -204,6 +204,46 @@ docker exec sommelier-sync /usr/local/bin/sync.sh once
 
 Safe at any time: a failure publishes nothing and leaves the live mirror alone.
 
+## The cellar (optional)
+
+The server can also keep your own wine cellar: what you have, where it is, when
+to drink it, and how you rated what you opened. It adds four tools and is off
+unless `CELLAR_DIR` is set.
+
+It gets its own directory rather than living beside the mirror. The mirror is
+mounted read-only and replaced every week; the cellar is written on every change
+and is the only thing here that cannot be rebuilt.
+
+```bash
+mkdir -p /mnt/user/appdata/sommelier-cellar
+chown 10001:10001 /mnt/user/appdata/sommelier-cellar
+```
+
+Set `CELLAR_DIR=/mnt/user/appdata/sommelier-cellar` in `.env`, then:
+
+```bash
+./run.sh mcp
+```
+
+`run.sh` refuses to start if the directory is missing or not owned by uid 10001,
+and says which. Check it took:
+
+```bash
+curl -s http://BIND_ADDR:8848/health
+```
+
+`/health` now carries a `cellar` object with its path and bottle count, and
+answers `ok: false` if the cellar cannot be written. Claude's connector may need
+disconnecting and reconnecting before the new tools appear.
+
+**Back it up.** Keeping it under `/mnt/user/appdata` puts it where the Appdata
+Backup plugin looks. The database stays in rollback-journal mode, so the single
+file `cellar.db` is complete between writes, and a plain copy is a usable backup:
+
+```bash
+cp /mnt/user/appdata/sommelier-cellar/cellar.db /mnt/user/backups/cellar-$(date +%F).db
+```
+
 ## The one thing that will break it
 
 **Never point `bolagetdb` at the published database.** Opening it sets

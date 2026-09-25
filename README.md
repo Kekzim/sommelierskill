@@ -7,7 +7,7 @@ Three layers, each usable on its own:
 | | | |
 |---|---|---|
 | **`bolagetdb`** | Go | Mirrors Systembolaget's ~27,000-product assortment into SQLite and gives you SQL over it |
-| **`mcp-server/`** | TypeScript | Nine MCP tools over that mirror, plus live shelf-stock lookups — [details](#mcp-server) |
+| **`mcp-server/`** | TypeScript | Nine MCP tools over that mirror, plus live shelf-stock lookups and an optional wine cellar — [details](#mcp-server) |
 | **`skill/`, `skill-claude-code/`** | — | The sommelier itself: persona, method, and the domain judgement that turns "something like a Burgundy" into a query — [details](#skill-packages) |
 
 The repository is named for the skill; `bolagetdb` is the tool underneath it.
@@ -212,6 +212,12 @@ bearer auth — so any MCP client can reach it without a local checkout. Nine
 tools: product and tasting-note search, similarity, upcoming releases, store
 lookup, live stock, freshness, and an escape hatch that runs read-only SQL for
 the questions the purpose-built tools do not cover.
+
+Optionally it also keeps your own cellar: four more tools that record what you
+have, where it is, when to drink it and how you rated what you opened — so
+"what should I open with the lamb tonight" can be answered from your own rack.
+It is a separate file from the mirror, the only thing the server writes, and
+the only thing in this setup that cannot be rebuilt.
 
 The one tool with no equivalent anywhere, including Systembolaget's own site, is
 `upcoming_releases`. Limited drops are pre-announced roughly 17 days ahead and

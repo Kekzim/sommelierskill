@@ -48,6 +48,7 @@ TZ=${TZ:-Europe/Stockholm}
 CRON_SCHEDULE=${CRON_SCHEDULE:-0 19 * * 5}
 SYNC_STORES=${SYNC_STORES:-1001 1002}
 SYSTEMBOLAGET_API_KEY=${SYSTEMBOLAGET_API_KEY:-}
+CELLAR_DIR=${CELLAR_DIR:-}
 
 die() { echo "run.sh: $*" >&2; exit 1; }
 
@@ -89,9 +90,25 @@ start_sync() {
   echo "sommelier-sync: $SYNC_IMAGE, schedule '$CRON_SCHEDULE', stores '$SYNC_STORES'"
 }
 
+# The cellar is optional. When CELLAR_DIR is set it must already exist and
+# belong to uid 10001: a bind mount keeps the host's ownership, and SQLite's
+# complaint about an unwritable directory ("unable to open database file") says
+# nothing about permissions. Checked here so it fails before anything changes.
+check_cellar_dir() {
+  [ -n "$CELLAR_DIR" ] || return 0
+  [ -d "$CELLAR_DIR" ] || die "CELLAR_DIR $CELLAR_DIR does not exist; mkdir it and chown 10001:10001 (see the runbook)"
+  owner=$(stat -c %u "$CELLAR_DIR")
+  [ "$owner" = 10001 ] || die "CELLAR_DIR $CELLAR_DIR is owned by uid $owner, not 10001: chown -R 10001:10001 $CELLAR_DIR"
+}
+
 start_mcp() {
   require_mcp_env
+  check_cellar_dir
   ensure_network
+  # Positional parameters are this function's own, so this does not touch the
+  # script's arguments.
+  set --
+  [ -z "$CELLAR_DIR" ] || set -- -v "$CELLAR_DIR:/cellar" -e CELLAR_DB_PATH=/cellar/cellar.db
   docker pull "$MCP_IMAGE"
   docker rm -f sommelier-mcp >/dev/null 2>&1 || true
   # /data read-only: the server has no business writing the mirror, and the
@@ -103,8 +120,9 @@ start_mcp() {
     -e MCP_AUTH_TOKEN="$MCP_AUTH_TOKEN" \
     -e SYSTEMBOLAGET_API_KEY="$SYSTEMBOLAGET_API_KEY" \
     -v "$APPDATA:/data:ro" \
+    "$@" \
     "$MCP_IMAGE" >/dev/null
-  echo "sommelier-mcp: $MCP_IMAGE on ${BIND_ADDR}:${HOST_PORT}"
+  echo "sommelier-mcp: $MCP_IMAGE on ${BIND_ADDR}:${HOST_PORT}, cellar ${CELLAR_DIR:-disabled}"
   restart_tunnel
 }
 

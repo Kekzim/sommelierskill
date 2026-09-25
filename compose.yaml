@@ -60,6 +60,9 @@ services:
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?set MCP_AUTH_TOKEN in .env}
       # Optional: only live shelf-stock checks need it.
       SYSTEMBOLAGET_API_KEY: ${SYSTEMBOLAGET_API_KEY:-}
+      # Optional: the user's cellar, and the four tools that manage it. Empty
+      # disables them.
+      CELLAR_DB_PATH: ${CELLAR_DB_PATH-/cellar/cellar.db}
     ports:
       # Bind to the VPN interface, not 0.0.0.0. Default keeps it host-local so a
       # missing BIND_ADDR cannot accidentally publish to every interface.
@@ -68,6 +71,9 @@ services:
       # Read-only: the server has no business writing the mirror, and the
       # published copy is in rollback-journal mode precisely so this works.
       - mirror:/data:ro
+      # Writable, and the one volume holding something that cannot be rebuilt.
+      # Back it up; the mirror is a sync away, the cellar is not.
+      - cellar:/cellar
     networks: [egress]
     depends_on:
       # Only ordering. The server starts fine without a mirror and reports the
@@ -90,3 +96,4 @@ networks:
 
 volumes:
   mirror:
+  cellar:

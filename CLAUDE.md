@@ -66,6 +66,7 @@ make build                  # -> ./bolagetdb
 make test                   # go test ./...
 make vet
 go test ./internal/store/ -run TestFTSBooleanSearch -v   # single test
+(cd mcp-server && npm test)                              # MCP server tests (node:test)
 
 ./bolagetdb sync                            # full pull, ~25 min
 ./bolagetdb sync --only "Rött vin" --no-enrich --no-snapshot   # fast dev loop
@@ -211,6 +212,15 @@ drives `FetchSlice` through a fake transport and fails with the old counting.
 stock changes hourly and must be read live from
 `sb-api-ecommerce/v1/stockbalance/store/{storeId}/{productId}` at the moment of
 recommending.
+
+**A product id is not a vintage.** Systembolaget keeps both `product_id` and
+`product_number` when a wine's vintage changes: between the snapshots of
+2026-08-20 and 2026-08-25, 49 products changed vintage under an unchanged id and
+number, and none changed id. Within one sync the numbers are unique, so nothing
+looks wrong. Across time they are not identities. Anything that remembers a
+product beyond one sync — the cellar, or price history built from `snapshots/` —
+has to record the vintage alongside the id, or a 2022 silently becomes the 2024,
+tasting note and price included.
 
 ## Conventions
 
@@ -419,7 +429,11 @@ Known open items, so a fresh session does not have to rediscover them:
   nothing about the cause.
 
   Per-token rate limiting is real work and probably unnecessary until someone
-  actually causes a problem. Onboarding is the URL, a token, and telling them to
+  actually causes a problem.
+
+  The cellar is the other coupling, if it is enabled: it is one cellar behind
+  one set of tokens, so anyone with a token could read and edit it. A shared
+  instance would need `CELLAR_DB_PATH` unset, or cellars scoped per token. Onboarding is the URL, a token, and telling them to
   type `Bearer ` in front of it — that omission cost two evenings once already.
 - **The mirror may be mid-refresh.** Check with `bolagetdb stats`; if rows carry
   two `synced_at` dates, a sync was interrupted. Re-run a full sync, which will
@@ -449,7 +463,9 @@ three.
 
 `mcp-server/` — **the MCP server**. Nine tools over the full mirror plus a live
 stock check, TypeScript, streamable HTTP, containerised alongside the Go sync
-job. The root `compose.yaml` only *builds* those two images; the NAS runs them
+job. With `CELLAR_DB_PATH` set it also keeps the user's wine cellar: four more
+tools over a separate, writable SQLite file, which is the only thing the server
+writes and the only data in this whole setup that cannot be rebuilt. The root `compose.yaml` only *builds* those two images; the NAS runs them
 with `deploy/unraid/run.sh`. This is the data-access surface: it is what the Claude
 Code skill drives when it is configured, and it is reachable only where the
 server is — inside the network, over the VPN. See `mcp-server/README.md`.
