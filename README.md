@@ -10,6 +10,11 @@ Three layers, each usable on its own:
 | **`mcp-server/`** | TypeScript | Nine MCP tools over that mirror, plus live shelf-stock lookups and an optional wine cellar — [details](#mcp-server) |
 | **`skill/`, `skill-claude-code/`** | — | The sommelier itself: persona, method, and the domain judgement that turns "something like a Burgundy" into a query — [details](#skill-packages) |
 
+<!-- Source: docs/architecture.drawio. The SVG embeds it, so either opens in
+     draw.io. After exporting, strip the PNG fallback draw.io adds after each
+     </foreignObject>; they take the file from ~55 KB to ~1 MB. -->
+![How a question in Claude reaches the MCP server on the NAS: through a Cloudflare Tunnel restricted to Anthropic's address range, to the Systembolaget mirror, the cellar and live shelf stock](docs/architecture.svg)
+
 The repository is named for the skill; `bolagetdb` is the tool underneath it.
 
 Systembolaget's API is a *product search*, not a query engine. It answers

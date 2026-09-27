@@ -1,0 +1,112 @@
+<mxfile host="drawio" version="31.5.3">
+  <diagram id="sommelier-arch" name="Architecture">
+    <mxGraphModel dx="1200" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1300" pageHeight="1100" math="0" shadow="0" background="#ffffff">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="&lt;b&gt;sommelierskill&lt;/b&gt; &amp;nbsp;·&amp;nbsp; from a question in Claude to the Systembolaget mirror and your cellar" style="text;html=1;fontSize=22;align=left;verticalAlign=middle;fontColor=#222222;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="20" width="1200" height="40" />
+        </mxCell>
+        <mxCell id="claude" value="Claude &amp;nbsp;·&amp;nbsp; Anthropic cloud" style="swimlane;whiteSpace=wrap;html=1;startSize=32;rounded=1;arcSize=3;fontSize=15;fontStyle=1;horizontal=1;align=left;spacingLeft=12;fillColor=#F4E3DA;strokeColor=#C96442;swimlaneFillColor=#FDF8F5;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="80" width="720" height="320" />
+        </mxCell>
+        <mxCell id="chat" value="&lt;b&gt;claude.ai chat&lt;/b&gt;&lt;br&gt;phone or desktop&lt;br&gt;&lt;br&gt;&lt;i&gt;“What goes with&lt;br&gt;the lamb tonight?”&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#ffffff;strokeColor=#C96442;" vertex="1" parent="claude">
+          <mxGeometry as="geometry" x="20" y="50" width="180" height="110" />
+        </mxCell>
+        <mxCell id="skill" value="&lt;b&gt;Sommelier skill&lt;/b&gt;&lt;br&gt;uploaded .zip&lt;br&gt;&lt;br&gt;persona, method,&lt;br&gt;reference tables" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#ffffff;strokeColor=#C96442;" vertex="1" parent="claude">
+          <mxGeometry as="geometry" x="250" y="50" width="200" height="110" />
+        </mxCell>
+        <mxCell id="conn" value="&lt;b&gt;Custom connector&lt;/b&gt;&lt;br&gt;MCP client, bearer token&lt;br&gt;&lt;br&gt;calls leave Anthropic&lt;br&gt;from 160.79.104.0/21" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#ffffff;strokeColor=#C96442;" vertex="1" parent="claude">
+          <mxGeometry as="geometry" x="500" y="50" width="200" height="110" />
+        </mxCell>
+        <mxCell id="snap" value="&lt;b&gt;Bundled snapshot&lt;/b&gt;&lt;br&gt;slim SQLite, built&lt;br&gt;from the mirror" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fontSize=14;fillColor=#ffffff;strokeColor=#C96442;dashed=1;" vertex="1" parent="claude">
+          <mxGeometry as="geometry" x="260" y="210" width="180" height="95" />
+        </mxCell>
+        <mxCell id="cf" value="Cloudflare" style="swimlane;whiteSpace=wrap;html=1;startSize=32;rounded=1;arcSize=3;fontSize=15;fontStyle=1;horizontal=1;align=left;spacingLeft=12;fillColor=#fff2cc;strokeColor=#d6b656;swimlaneFillColor=#FFFCEF;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="800" y="80" width="440" height="320" />
+        </mxCell>
+        <mxCell id="waf" value="&lt;b&gt;Security rule&lt;/b&gt; (WAF)&lt;br&gt;&lt;br&gt;403 for anyone&lt;br&gt;outside 160.79.104.0/21" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#ffffff;strokeColor=#d6b656;" vertex="1" parent="cf">
+          <mxGeometry as="geometry" x="20" y="50" width="180" height="110" />
+        </mxCell>
+        <mxCell id="tun" value="&lt;b&gt;Cloudflare Tunnel&lt;/b&gt;&lt;br&gt;sommelier.&amp;lt;domain&amp;gt;&lt;br&gt;&lt;br&gt;no open port at home" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#ffffff;strokeColor=#d6b656;" vertex="1" parent="cf">
+          <mxGeometry as="geometry" x="240" y="50" width="180" height="110" />
+        </mxCell>
+        <mxCell id="cfnote" value="&lt;i&gt;No Cloudflare Access in front: its login page would break the connector. The WAF rule and the bearer token do that job.&lt;/i&gt;" style="text;html=1;whiteSpace=wrap;fontSize=12;align=left;verticalAlign=top;fontColor=#6b5a1e;" vertex="1" parent="cf">
+          <mxGeometry as="geometry" x="20" y="190" width="190" height="110" />
+        </mxCell>
+        <mxCell id="cc" value="&lt;b&gt;Claude Code&lt;/b&gt;&lt;br&gt;on the home LAN&lt;br&gt;&lt;br&gt;skill-claude-code:&lt;br&gt;same tools, no tunnel" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="500" width="220" height="130" />
+        </mxCell>
+        <mxCell id="nas" value="Unraid NAS &amp;nbsp;·&amp;nbsp; docker network sommelier_egress" style="swimlane;whiteSpace=wrap;html=1;startSize=32;rounded=1;arcSize=3;fontSize=15;fontStyle=1;horizontal=1;align=left;spacingLeft=12;fillColor=#dae8fc;strokeColor=#6c8ebf;swimlaneFillColor=#F5F9FE;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="300" y="460" width="940" height="350" />
+        </mxCell>
+        <mxCell id="cfd" value="&lt;b&gt;sommelier-tunnel&lt;/b&gt;&lt;br&gt;cloudflared&lt;br&gt;&lt;br&gt;dials out; nothing&lt;br&gt;listens publicly" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#ffffff;strokeColor=#6c8ebf;" vertex="1" parent="nas">
+          <mxGeometry as="geometry" x="740" y="50" width="180" height="110" />
+        </mxCell>
+        <mxCell id="mcp" value="&lt;b&gt;sommelier-mcp&lt;/b&gt;&lt;br&gt;TypeScript, node:sqlite, port 8848&lt;br&gt;bearer auth, streamable HTTP&lt;br&gt;&lt;br&gt;&lt;b&gt;9 Systembolaget tools + 4 cellar tools&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;" vertex="1" parent="nas">
+          <mxGeometry as="geometry" x="280" y="40" width="340" height="130" />
+        </mxCell>
+        <mxCell id="cellar" value="&lt;b&gt;cellar.db&lt;/b&gt;&lt;br&gt;your bottles&lt;br&gt;read-write" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fontSize=14;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="nas">
+          <mxGeometry as="geometry" x="240" y="225" width="150" height="105" />
+        </mxCell>
+        <mxCell id="mirror" value="&lt;b&gt;bolaget.db&lt;/b&gt;&lt;br&gt;~27k products&lt;br&gt;read-only mount" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fontSize=14;fillColor=#ffffff;strokeColor=#6c8ebf;" vertex="1" parent="nas">
+          <mxGeometry as="geometry" x="500" y="225" width="150" height="105" />
+        </mxCell>
+        <mxCell id="sync" value="&lt;b&gt;sommelier-sync&lt;/b&gt;&lt;br&gt;bolagetdb (Go)&lt;br&gt;Fridays 23:00&lt;br&gt;atomic swap on publish" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#ffffff;strokeColor=#6c8ebf;" vertex="1" parent="nas">
+          <mxGeometry as="geometry" x="740" y="225" width="180" height="105" />
+        </mxCell>
+        <mxCell id="sb" value="Systembolaget &amp;nbsp;·&amp;nbsp; api-extern.systembolaget.se" style="swimlane;whiteSpace=wrap;html=1;startSize=32;rounded=1;arcSize=3;fontSize=15;fontStyle=1;horizontal=1;align=left;spacingLeft=12;fillColor=#d5e8d4;strokeColor=#82b366;swimlaneFillColor=#F4FAF3;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="300" y="870" width="940" height="140" />
+        </mxCell>
+        <mxCell id="stock" value="&lt;b&gt;Stock balance&lt;/b&gt;&lt;br&gt;shelf stock per store" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#ffffff;strokeColor=#82b366;" vertex="1" parent="sb">
+          <mxGeometry as="geometry" x="335" y="48" width="220" height="72" />
+        </mxCell>
+        <mxCell id="search" value="&lt;b&gt;Product search&lt;/b&gt;&lt;br&gt;the whole assortment" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#ffffff;strokeColor=#82b366;" vertex="1" parent="sb">
+          <mxGeometry as="geometry" x="740" y="48" width="180" height="72" />
+        </mxCell>
+        <mxCell id="legend" value="&lt;b&gt;How to read it&lt;/b&gt;&lt;br&gt;Arrows run from caller to callee.&lt;br&gt;Dashed: a fallback, or the LAN route.&lt;br&gt;&lt;font color=&quot;#b85450&quot;&gt;&lt;b&gt;Red&lt;/b&gt;&lt;/font&gt;: the only data that can't be rebuilt from Systembolaget." style="text;html=1;whiteSpace=wrap;fontSize=12;align=left;verticalAlign=top;fontColor=#444444;rounded=1;strokeColor=#bbbbbb;fillColor=#ffffff;spacing=10;arcSize=6;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="40" y="870" width="220" height="96" />
+        </mxCell>
+        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;" edge="1" parent="1" source="chat" target="skill">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;" edge="1" parent="1" source="skill" target="conn">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e3" value="fallback" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;dashed=1;dashPattern=6 4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="skill" target="snap">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e4" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;" edge="1" parent="1" source="conn" target="waf">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;" edge="1" parent="1" source="waf" target="tun">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e6" value="through the&lt;br&gt;outbound tunnel" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="tun" target="cfd">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e7" value="HTTP" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="cfd" target="mcp">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e8" value="LAN, :8848" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;dashed=1;dashPattern=6 4;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="cc" target="mcp">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;exitX=0.1029;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="mcp" target="cellar">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;exitX=0.8676;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="mcp" target="mirror">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e11" value="publishes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="sync" target="mirror">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e12" value="live, never cached" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;exitX=0.4853;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="mcp" target="stock">
+          <mxGeometry as="geometry" relative="1" x="0.62" />
+        </mxCell>
+        <mxCell id="e13" value="weekly full pull" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="sync" target="search">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
