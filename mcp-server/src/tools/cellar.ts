@@ -21,6 +21,14 @@ const READ_ONLY = {
 } as const;
 
 const year = z.number().int().min(1800).max(2200);
+
+/**
+ * A date known only to the year or the month. Purchases bought at a cellar
+ * door years ago, or disgorgements printed as "03/2024", rarely have a day, and
+ * forcing one would invent it. Kept as text, so 2026-04 still sorts between
+ * 2026-03-31 and 2026-04-01.
+ */
+const PARTIAL_DATE = /^\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?)?$/;
 const text = (max: number, what: string) =>
   z.string().trim().min(1).max(max).nullable().optional().describe(what);
 
@@ -49,10 +57,10 @@ const wineFields = {
     .describe("Currency of purchase_price as an ISO 4217 code, e.g. 'EUR'. Leave out for kronor. Never convert"),
   purchased_on: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
+    .regex(PARTIAL_DATE, "Use YYYY, YYYY-MM or YYYY-MM-DD")
     .nullable()
     .optional()
-    .describe("Purchase date, YYYY-MM-DD"),
+    .describe("Purchase date, as precise as known: YYYY, YYYY-MM or YYYY-MM-DD"),
   purchased_from: text(200, "Where it was bought, e.g. 'Systembolaget', 'a vineyard in Alsace', 'gift'"),
   location: text(200, "Where it is in the cellar, e.g. 'rack B, row 3'"),
   drink_from: year.nullable().optional().describe("First year it is ready to drink"),
@@ -73,7 +81,7 @@ const wineFields = {
     .describe("For a non-vintage wine: the base year, often printed on grower Champagne"),
   disgorged_on: z
     .string()
-    .regex(/^\d{4}(-\d{2}(-\d{2})?)?$/, "Use YYYY, YYYY-MM or YYYY-MM-DD")
+    .regex(PARTIAL_DATE, "Use YYYY, YYYY-MM or YYYY-MM-DD")
     .nullable()
     .optional()
     .describe("Disgorgement date from the back label: YYYY, YYYY-MM or YYYY-MM-DD"),
@@ -305,7 +313,7 @@ Args:
   - name (string): required when there is neither
   - quantity (number): bottles added (default: 1)
   - producer, vintage, country, region, category, grapes, volume_ml: override or supply identity
-  - purchase_price (per bottle, as paid), purchase_currency ('EUR'; omit for SEK), purchased_on (YYYY-MM-DD), purchased_from
+  - purchase_price (per bottle, as paid), purchase_currency ('EUR'; omit for SEK), purchased_on (YYYY, YYYY-MM or YYYY-MM-DD: as precise as known, never padded), purchased_from
     Record the price in the currency it was paid in. Do not convert it: the rate on the day is rarely known, and the cellar totals each currency separately.
   - abv, sugar_g_l (dosage for sparkling), style, base_vintage, disgorged_on: label facts
   - location, drink_from, drink_until (years), notes

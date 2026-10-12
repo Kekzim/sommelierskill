@@ -93,6 +93,19 @@ test("the cellar tools round-trip through MCP", async () => {
     assert.equal(badCurrency.isError, true);
     const all = text(await client.callTool({ name: "systembolaget_cellar_list", arguments: {} }));
     assert.match(all, /€141 paid for what is recorded/, "6 × €23.50, totalled in euros");
+
+    for (const date of ["2026-04", "2026", "2026-04-02"]) {
+      const ok = await client.callTool({ name: "systembolaget_cellar_update", arguments: { wine_id: cid, purchased_on: date } });
+      assert.equal(ok.isError, undefined, `${date} should be accepted`);
+    }
+    for (const date of ["2026-13", "04/2026", "2026-4"]) {
+      const bad = await client.callTool({ name: "systembolaget_cellar_update", arguments: { wine_id: cid, purchased_on: date } });
+      assert.equal(bad.isError, true, `${date} should be refused`);
+    }
+    assert.match(
+      text(await client.callTool({ name: "systembolaget_cellar_update", arguments: { wine_id: cid, purchased_on: "2026-04" } })),
+      /\*\*Paid\*\*: €23\.50 \(2026-04\)/,
+    );
   } finally {
     await client.close();
     cellar.close();
