@@ -373,6 +373,7 @@ test("prices keep the currency they were paid in, and totals are never mixed", (
     value: 429,
     value_by_currency: { SEK: 429, EUR: 93 },
   });
+  assert.deepEqual(Object.keys(cellar.summary().value_by_currency), ["SEK", "EUR"], "kronor first, then by code");
 
   const relabelled = cellar.update(w.id, { purchase_currency: null });
   assert.equal(relabelled.purchase_currency, null, "null clears it back to kronor");

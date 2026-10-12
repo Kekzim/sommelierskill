@@ -745,7 +745,7 @@ export class Cellar {
       .prepare(
         `SELECT COALESCE(purchase_currency, '${HOME_CURRENCY}') AS currency, SUM(quantity * purchase_price) AS total
          FROM wine WHERE quantity > 0 AND purchase_price IS NOT NULL
-         GROUP BY 1 ORDER BY 1 = '${HOME_CURRENCY}' DESC, 1`,
+         GROUP BY currency ORDER BY currency = '${HOME_CURRENCY}' DESC, currency`,
       )
       .all() as { currency: string; total: number }[];
     const value_by_currency = Object.fromEntries(paid.map((p) => [p.currency, Math.round(p.total * 100) / 100]));
