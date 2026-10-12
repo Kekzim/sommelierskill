@@ -18,6 +18,9 @@ export const MAX_STOCK_CHECKS = 10;
 /** How long a stock request may take before we give up on it. */
 export const STOCK_TIMEOUT_MS = 8000;
 
+/** After a failed key discovery, how long before trying systembolaget.se again. */
+export const STOCK_KEY_RETRY_MS = 60_000;
+
 /**
  * Ceiling on rows a raw SQL query may return. The escape-hatch tool appends
  * this when the query has no LIMIT of its own, so a stray `SELECT * FROM

@@ -22,7 +22,7 @@ npm test    # node's built-in runner; covers the cellar
 | `HOST` | `127.0.0.1` | Bind address — set to the VPN interface to serve other machines |
 | `PORT` | `8848` | |
 | `MCP_AUTH_TOKEN` | *unset* | Bearer token. **Unset means no auth at all.** |
-| `SYSTEMBOLAGET_API_KEY` | *unset* | Enables live stock checks; everything else works without it |
+| `SYSTEMBOLAGET_API_KEY` | *unset* | Override for the live stock check's key. **Leave it unset**: the server reads the key from systembolaget.se's own frontend, as the sync does, and finds the new one when it changes |
 | `CELLAR_DB_PATH` | *unset* | Your wine cellar, a writable SQLite file. **Unset means no cellar tools**, and the server stays read-only |
 | `ALLOWED_ORIGINS` | *unset* | Comma-separated origins to allow. **Unset means no origin checking**, which is correct behind a tunnel; set it only for a loopback-bound server a browser could reach |
 
@@ -128,6 +128,12 @@ filter them in or out.
 **Stock is never cached.** Product facts are mirrored because they change
 slowly; shelf stock changes hourly and is read live, for a shortlist only, at
 most 10 products per call. This is an undocumented API.
+
+Its key is the public one Systembolaget's own website uses, read from the
+site's JavaScript on first use and cached. If the API starts refusing it, the
+server fetches the new key and retries once. The answer also carries
+Systembolaget's `isInStoreAssortment` flag, as `in_store_assortment`: a shop
+can have bottles of a wine that is not in its regular range.
 
 **The SQL tool is read-only three times over**: the SQLite connection is opened
 `readOnly`, only a single `SELECT`/`WITH` statement is accepted, and a query

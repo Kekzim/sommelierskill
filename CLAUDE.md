@@ -213,6 +213,26 @@ stock changes hourly and must be read live from
 `sb-api-ecommerce/v1/stockbalance/store/{storeId}/{productId}` at the moment of
 recommending.
 
+**The stock check finds its own key.** The API wants the public subscription
+key Systembolaget's frontend ships in its JavaScript — the key the Go sync
+scrapes at the start of every run, through the upstream library. The MCP
+server used to require it as `SYSTEMBOLAGET_API_KEY` instead, and the NAS
+never had it set: nothing in `run.sh` or the runbook asked for it, so from the
+first deployment until 2026-10-12 every `check_stock` call answered "not
+configured" while the endpoint itself worked fine. A key pasted in by hand
+would have broken anyway, silently, the next time Systembolaget changed it.
+
+`mcp-server/src/stockKey.ts` ports the upstream `GetAPIKey`: fetch the
+homepage, walk its `/_next/static/chunks/*.js` in order until one carries
+`NEXT_PUBLIC_API_KEY_APIM`, cache the key. That took ~0.5 s and 13 of 29
+chunks when measured. A 401/403 from the stock API drops the key and retries
+those products once with a fresh one. A failed discovery is remembered for a
+minute, so a changed frontend is not re-scraped on every call. The env
+variable still works as an override and is then never re-discovered. If the
+site ever stops matching the regexes, the upstream library and this file break
+together: the sync then fails at its first request, which is the louder of
+the two signals.
+
 **A product id is not a vintage.** Systembolaget keeps both `product_id` and
 `product_number` when a wine's vintage changes: between the snapshots of
 2026-08-20 and 2026-08-25, 49 products changed vintage under an unchanged id and
@@ -443,8 +463,8 @@ Known open items, so a fresh session does not have to rediscover them:
   products pins the container's single core; an agent writing a bad join gets
   there without malice. `busy_timeout` is about lock waits, not execution time.
 
-  Two couplings worth remembering. `check_stock` would run on the owner's API
-  key and go out through the owner's WAN address, so other people's lookups
+  Two couplings worth remembering. `check_stock` would go out through the
+  owner's WAN address, so other people's lookups
   could get that IP rate-limited — and the thing that breaks is the weekly sync
   (see the 429 on 2026-09-08). And the NAS becomes their dependency: every
   reboot surfaces on their end as "couldn't reach the MCP server", which says

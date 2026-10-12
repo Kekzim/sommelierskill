@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Mirror } from "../db.js";
 import { MAX_STOCK_CHECKS, STOCK_API, STOCK_TIMEOUT_MS } from "../constants.js";
 import { guard, textResult } from "../response.js";
+import type { StockKey } from "../stockKey.js";
 
 const READ_ONLY = {
   readOnlyHint: true,
@@ -16,10 +17,17 @@ interface StockResult {
   full_name: string | null;
   stock: number | null;
   shelf: string | null;
+  /** Systembolaget's own flag: false means the shop holds it outside its regular range. */
+  in_store_assortment: boolean | null;
   error?: string;
 }
 
-export function registerStoreTools(server: McpServer, db: Mirror, apiKey: string | undefined): void {
+export function registerStoreTools(
+  server: McpServer,
+  db: Mirror,
+  stockKey: StockKey,
+  fetchFn: typeof fetch = fetch,
+): void {
   server.registerTool(
     "systembolaget_list_stores",
     {
@@ -132,7 +140,8 @@ Examples:
 
 Error Handling:
   - A product with no stock entry returns stock 0 rather than an error; the store may simply not carry it.
-  - Network or API failures are reported per product, so one failure does not lose the rest.`,
+  - Network or API failures are reported per product, so one failure does not lose the rest.
+  - If Systembolaget's API key cannot be obtained, the call says so and nothing else is affected.`,
       inputSchema: z
         .object({
           store_id: z.string().min(1).describe("Store site id, e.g. '1001'"),
@@ -148,60 +157,70 @@ Error Handling:
     },
     async ({ store_id, product_ids }) =>
       guard(async () => {
-        if (!apiKey) {
+        let key: string;
+        try {
+          key = await stockKey.get();
+        } catch (err) {
           return textResult(
-            "Live stock checks are not configured: set SYSTEMBOLAGET_API_KEY on the server. " +
-              "Product facts still work; only today's shelf count is unavailable.",
+            "Live stock is unavailable right now: could not obtain Systembolaget's API key " +
+              `(${err instanceof Error ? err.message : String(err)}). ` +
+              "Product facts still work; only today's shelf count is missing.",
           );
         }
 
         const store = db.get<{ name: string }>(`SELECT name FROM store WHERE site_id = ?`, store_id);
 
-        const results: StockResult[] = await Promise.all(
-          product_ids.map(async (id): Promise<StockResult> => {
-            const named = db.get<{ full_name: string }>(
-              `SELECT full_name FROM product WHERE product_id = ?`,
-              id,
-            );
-            try {
-              const res = await fetch(`${STOCK_API}/${encodeURIComponent(store_id)}/${encodeURIComponent(id)}/`, {
-                headers: {
-                  Origin: "https://www.systembolaget.se",
-                  Accept: "application/json",
-                  "Ocp-Apim-Subscription-Key": apiKey,
-                },
-                signal: AbortSignal.timeout(STOCK_TIMEOUT_MS),
-              });
-              if (res.status === 404) {
-                return { product_id: id, full_name: named?.full_name ?? null, stock: 0, shelf: null };
-              }
-              if (!res.ok) {
-                return {
-                  product_id: id,
-                  full_name: named?.full_name ?? null,
-                  stock: null,
-                  shelf: null,
-                  error: `stock API returned ${res.status}`,
-                };
-              }
-              const body = (await res.json()) as { stock?: number; shelf?: string };
+        /** `refused` marks a rejected key, which is worth one retry with a fresh one. */
+        const check = async (id: string, key: string): Promise<{ result: StockResult; refused: boolean }> => {
+          const named = db.get<{ full_name: string }>(`SELECT full_name FROM product WHERE product_id = ?`, id);
+          const base = { product_id: id, full_name: named?.full_name ?? null, in_store_assortment: null };
+          try {
+            const res = await fetchFn(`${STOCK_API}/${encodeURIComponent(store_id)}/${encodeURIComponent(id)}/`, {
+              headers: {
+                Origin: "https://www.systembolaget.se",
+                Accept: "application/json",
+                "Ocp-Apim-Subscription-Key": key,
+              },
+              signal: AbortSignal.timeout(STOCK_TIMEOUT_MS),
+            });
+            if (res.status === 404) {
+              return { result: { ...base, stock: 0, shelf: null }, refused: false };
+            }
+            if (!res.ok) {
               return {
-                product_id: id,
-                full_name: named?.full_name ?? null,
-                stock: body.stock ?? 0,
-                shelf: body.shelf ?? null,
-              };
-            } catch (err) {
-              return {
-                product_id: id,
-                full_name: named?.full_name ?? null,
-                stock: null,
-                shelf: null,
-                error: err instanceof Error ? err.message : String(err),
+                result: { ...base, stock: null, shelf: null, error: `stock API returned ${res.status}` },
+                refused: res.status === 401 || res.status === 403,
               };
             }
-          }),
-        );
+            const body = (await res.json()) as { stock?: number; shelf?: string; isInStoreAssortment?: boolean };
+            return {
+              result: {
+                ...base,
+                stock: body.stock ?? 0,
+                shelf: body.shelf ?? null,
+                in_store_assortment: body.isInStoreAssortment ?? null,
+              },
+              refused: false,
+            };
+          } catch (err) {
+            const error = err instanceof Error ? err.message : String(err);
+            return { result: { ...base, stock: null, shelf: null, error }, refused: false };
+          }
+        };
+
+        let checked = await Promise.all(product_ids.map((id) => check(id, key)));
+
+        // A refused key means Systembolaget has changed it since we found it.
+        // Find the new one and retry those products once; if that fails too,
+        // the per-product errors already say what happened.
+        if (stockKey.canRefresh && checked.some((c) => c.refused)) {
+          stockKey.invalidate();
+          const fresh = await stockKey.get().catch(() => null);
+          if (fresh) {
+            checked = await Promise.all(checked.map((c) => (c.refused ? check(c.result.product_id, fresh) : c)));
+          }
+        }
+        const results = checked.map((c) => c.result);
 
         const output = {
           store_id,
@@ -214,7 +233,11 @@ Error Handling:
           const label = r.full_name ?? r.product_id;
           if (r.error) lines.push(`- **${label}**: could not check (${r.error})`);
           else if (r.stock === 0) lines.push(`- **${label}**: none on the shelf`);
-          else lines.push(`- **${label}**: ${r.stock} in stock${r.shelf ? `, shelf ${r.shelf}` : ""}`);
+          else
+            lines.push(
+              `- **${label}**: ${r.stock} in stock${r.shelf ? `, shelf ${r.shelf}` : ""}` +
+                (r.in_store_assortment === false ? " (outside this shop's regular range)" : ""),
+            );
         }
         return {
           content: [{ type: "text" as const, text: lines.join("\n") }],

@@ -12,6 +12,7 @@ import { registerReleaseTools } from "./tools/releases.js";
 import { registerStoreTools } from "./tools/stores.js";
 import { registerMetaTools } from "./tools/meta.js";
 import { registerCellarTools } from "./tools/cellar.js";
+import { StockKey } from "./stockKey.js";
 
 /**
  * Resolution mirrors the Go CLI's dbPath: an explicit path wins, otherwise the
@@ -21,7 +22,10 @@ const dbPath = process.env.BOLAGETDB_PATH ?? join(homedir(), ".local/share/bolag
 const port = Number(process.env.PORT ?? 8848);
 const host = process.env.HOST ?? "127.0.0.1";
 const authToken = process.env.MCP_AUTH_TOKEN;
-const apiKey = process.env.SYSTEMBOLAGET_API_KEY;
+// Optional override. Unset, the key is discovered from systembolaget.se the way
+// the Go sync does it. One instance for the process: buildServer runs per
+// request, and the discovered key has to outlive each one.
+const stockKey = new StockKey(process.env.SYSTEMBOLAGET_API_KEY || undefined);
 // Optional. Unset means no cellar tools at all -- the server stays read-only.
 const cellarPath = process.env.CELLAR_DB_PATH || undefined;
 
@@ -33,7 +37,7 @@ function buildServer(): McpServer {
   registerSearchTools(server, mirror);
   registerProductTools(server, mirror);
   registerReleaseTools(server, mirror);
-  registerStoreTools(server, mirror, apiKey);
+  registerStoreTools(server, mirror, stockKey);
   registerMetaTools(server, mirror);
   if (cellar) registerCellarTools(server, cellar);
   return server;
@@ -159,7 +163,7 @@ app.listen(port, host, () => {
   console.error(`systembolaget-mcp-server on http://${host}:${port}/mcp`);
   console.error(`  database:   ${dbPath}`);
   console.error(`  auth:       ${authToken ? "bearer token required" : "DISABLED (set MCP_AUTH_TOKEN)"}`);
-  console.error(`  live stock: ${apiKey ? "enabled" : "disabled (set SYSTEMBOLAGET_API_KEY)"}`);
+  console.error(`  live stock: key ${stockKey.source}`);
   console.error(`  cellar:     ${cellarPath ?? "disabled (set CELLAR_DB_PATH)"}`);
 });
 
