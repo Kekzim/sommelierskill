@@ -99,3 +99,13 @@ export async function guard(fn: () => Promise<ToolResult> | ToolResult): Promise
 export function kr(v: unknown): string {
   return typeof v === "number" ? `${v.toFixed(v % 1 === 0 ? 0 : 2)} kr` : "price unknown";
 }
+
+const SYMBOL: Record<string, string> = { EUR: "€", USD: "$", GBP: "£" };
+
+/** A price in the currency it was paid in: kronor as `kr`, the rest by symbol or code. */
+export function money(v: unknown, currency: string | null | undefined): string {
+  const code = (currency ?? "SEK").toUpperCase();
+  if (code === "SEK" || typeof v !== "number") return kr(v);
+  const amount = v.toFixed(v % 1 === 0 ? 0 : 2);
+  return SYMBOL[code] ? `${SYMBOL[code]}${amount}` : `${amount} ${code}`;
+}

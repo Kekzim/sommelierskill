@@ -11,7 +11,7 @@ import {
   thisYear,
 } from "../cellar.js";
 import { pagingSchema } from "../product.js";
-import { Page, ToolResult, errorResult, guard, kr, paginate, textResult, toolResult } from "../response.js";
+import { Page, ToolResult, errorResult, guard, kr, money, paginate, textResult, toolResult } from "../response.js";
 
 const READ_ONLY = {
   readOnlyHint: true,
@@ -33,7 +33,20 @@ const wineFields = {
   category: text(100, "Systembolaget's category name where possible: 'Rött vin', 'Vitt vin', 'Mousserande vin'"),
   grapes: text(300, "Grapes, comma separated"),
   volume_ml: z.number().int().min(20).max(30000).nullable().optional().describe("Bottle size in ml"),
-  purchase_price: z.number().min(0).max(1_000_000).nullable().optional().describe("Price paid per bottle, SEK"),
+  purchase_price: z
+    .number()
+    .min(0)
+    .max(1_000_000)
+    .nullable()
+    .optional()
+    .describe("Price paid per bottle, as paid -- in purchase_currency, or SEK if that is not given"),
+  purchase_currency: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{3}$/, "Use an ISO 4217 code, e.g. 'EUR'")
+    .nullable()
+    .optional()
+    .describe("Currency of purchase_price as an ISO 4217 code, e.g. 'EUR'. Leave out for kronor. Never convert"),
   purchased_on: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
@@ -119,7 +132,8 @@ function wineMarkdown(w: ListedWine | WineRow, history?: EventRow[]): string {
   if (w.grapes) lines.push(`- **Grapes**: ${w.grapes}`);
   if (w.purchase_price != null || w.purchased_on || w.purchased_from) {
     const how = [w.purchased_on, w.purchased_from].filter(Boolean).join(", ");
-    lines.push(`- **Paid**: ${w.purchase_price != null ? kr(w.purchase_price) : "price not recorded"}${how ? ` (${how})` : ""}`);
+    const price = w.purchase_price != null ? money(w.purchase_price, w.purchase_currency) : "price not recorded";
+    lines.push(`- **Paid**: ${price}${how ? ` (${how})` : ""}`);
   }
   // Three voices, and they must never blur: Systembolaget's note for this
   // vintage, Claude's profile with its sources, and the user's own.
@@ -260,7 +274,8 @@ Error Handling:
         }
 
         const s = cellar.summary();
-        const value = s.value != null ? `, ${kr(Math.round(s.value))} paid for what is recorded` : "";
+        const paid = Object.entries(s.value_by_currency).map(([c, v]) => money(Math.round(v), c));
+        const value = paid.length ? `, ${paid.join(" + ")} paid for what is recorded` : "";
         return toolResult(
           paginate(items, total, params.offset),
           (page: Page<ListedWine>) =>
@@ -290,7 +305,8 @@ Args:
   - name (string): required when there is neither
   - quantity (number): bottles added (default: 1)
   - producer, vintage, country, region, category, grapes, volume_ml: override or supply identity
-  - purchase_price (per bottle, SEK), purchased_on (YYYY-MM-DD), purchased_from
+  - purchase_price (per bottle, as paid), purchase_currency ('EUR'; omit for SEK), purchased_on (YYYY-MM-DD), purchased_from
+    Record the price in the currency it was paid in. Do not convert it: the rate on the day is rarely known, and the cellar totals each currency separately.
   - abv, sugar_g_l (dosage for sparkling), style, base_vintage, disgorged_on: label facts
   - location, drink_from, drink_until (years), notes
   - claude_profile, claude_sources: see systembolaget_cellar_update
@@ -301,6 +317,7 @@ Examples:
   - "I just bought 3 of the Château Montus" -> find it, then product_id=<id>, quantity=3, purchased_from='Systembolaget'
   - "Add two bottles of the 2019 Barolo my uncle gave me" -> name, vintage=2019, quantity=2, purchased_from='gift'
   - "Six Egly-Ouriet Brut Tradition, NV, 2 g/L, base 2019, disgorged March 2024" -> producer='Egly-Ouriet', name='Brut Tradition', vintage=null, sugar_g_l=2, base_vintage=2019, disgorged_on='2024-03', category='Mousserande vin', quantity=6
+  - "Two from the grower at €23.50 each" -> purchase_price=23.5, purchase_currency='EUR', purchased_from='Direct from the grower'
 
 Error Handling:
   - An unknown product_id or product_number returns an error suggesting a search, or adding by name.`,
@@ -352,7 +369,7 @@ This is also how a wine nobody describes gets filled in -- a grower Champagne, a
 Args:
   - wine_id (number): from systembolaget_cellar_list
   - quantity (number): corrected bottle count
-  - name, producer, vintage, country, region, category, grapes, volume_ml, purchase_price, purchased_on, purchased_from, location, drink_from, drink_until, notes
+  - name, producer, vintage, country, region, category, grapes, volume_ml, purchase_price, purchase_currency, purchased_on, purchased_from, location, drink_from, drink_until, notes
   - abv, sugar_g_l, style, base_vintage, disgorged_on: label facts
   - claude_profile, claude_sources: your profile and where it came from -- always together
 

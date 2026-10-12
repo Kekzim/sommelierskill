@@ -425,6 +425,20 @@ Known open items, so a fresh session does not have to rediscover them:
   `/mnt/user/appdata/sommelier-cellar`, the only directory here that cannot be
   rebuilt; then enter the Champagnes — fields in `mcp-server/README.md` — and
   work through the `needs_profile` queue.
+
+  The first third of the cellar went in on 2026-10-12 (33 wines, 42 bottles),
+  and it exposed two gaps, closed in the next release. Grower prices are euros
+  with mostly no purchase date, so `purchase_currency` keeps a price as paid
+  and totals stay per currency. And a Systembolaget magnum with no tasting
+  note was copied in with four taste clocks of 0.
+- **Unrated products carry all-zero taste clocks in the mirror, not NULL.**
+  Every one of 11,543 wines without a tasting note has body, tannin, sweetness
+  and fruit acid all 0. A real rating has body ≥ 1, while sweetness 0 is real
+  and common. The cellar now treats all-zero as "not rated". The mirror itself
+  does not, so `max_tannin=2` or `max_sweetness=2` in a search also matches
+  every unrated product. The default `max_availability_rank=1` hides most of
+  them (99.7% of stocked products are rated), but an order-only search does
+  not. The right fix is upstream in `normalize`: write NULL for all-zero.
 - **The scheduled sync is verified as of 2026-09-08.** It had never fired before
   that — busybox crond needs root and a non-nologin shell, and the image gave it
   neither, silently. Fixed in v1.0.1 and observed firing on the minute, running

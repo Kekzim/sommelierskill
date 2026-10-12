@@ -80,6 +80,19 @@ test("the cellar tools round-trip through MCP", async () => {
     assert.match(shown, /\*\*Label\*\*: 2 g\/L sugar · disgorged 2024-03/);
     assert.match(shown, /\*\*Claude's profile\*\* \(\d{4}-\d{2}-\d{2}\): Vinous\./);
     assert.match(shown, /Sources\*: general knowledge, unverified/);
+
+    await client.callTool({
+      name: "systembolaget_cellar_update",
+      arguments: { wine_id: cid, purchase_price: 23.5, purchase_currency: "eur" },
+    });
+    assert.match(text(await client.callTool({ name: "systembolaget_cellar_list", arguments: { wine_id: cid } })), /\*\*Paid\*\*: €23\.50/);
+    const badCurrency = await client.callTool({
+      name: "systembolaget_cellar_update",
+      arguments: { wine_id: cid, purchase_currency: "euros" },
+    });
+    assert.equal(badCurrency.isError, true);
+    const all = text(await client.callTool({ name: "systembolaget_cellar_list", arguments: {} }));
+    assert.match(all, /€141 paid for what is recorded/, "6 × €23.50, totalled in euros");
   } finally {
     await client.close();
     cellar.close();

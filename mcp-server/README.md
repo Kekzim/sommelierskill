@@ -164,7 +164,16 @@ number when the vintage changes —
 49 wines did between the snapshots of 2026-08-20 and 2026-08-25 — so a live
 lookup of last year's 2022 returns the 2024's note and price as if nothing had
 changed. The copied note is only taken when the vintages match, and the listing
-flags when Systembolaget has moved on to a different vintage.
+flags when Systembolaget has moved on to a different vintage. Taste clocks are
+copied only when Systembolaget has actually rated the wine: it writes 0 in all
+four for every unrated product, which read as a rating would mean bone-dry,
+featherweight and flat.
+
+**Prices are kept in the currency they were paid in.** A grower's cellar door
+charges euros, and converting at entry needs an exchange rate for a date that is
+often not recorded. `purchase_currency` holds the ISO code; empty means kronor,
+which is what every price written before it was. The cellar's total is reported
+per currency and never converted.
 
 **A cellar wine has three voices, stored apart.** Systembolaget's note, copied
 for that vintage; the user's own notes and ratings; and, for wines nobody else

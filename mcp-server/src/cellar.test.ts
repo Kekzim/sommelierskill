@@ -17,6 +17,8 @@ interface Fixture {
   taste: string | null;
   availability?: string;
   grapes?: string[];
+  /** body, tannin, sweetness, fruit acid. All zero is how Systembolaget writes "not rated". */
+  clocks?: [number, number, number, number];
 }
 
 /** A mirror with just the columns the cellar reads, written the way the sync publishes it. */
@@ -35,8 +37,18 @@ function writeMirror(path: string, products: Fixture[]): void {
   for (const p of products) {
     db.prepare(
       `INSERT INTO product VALUES (?, ?, ?, ?, ?, 'Frankrike', 'Frankrike sydväst', 'Madiran',
-         'Rött vin', 750, ?, ?, 0, ?, 11, 11, 1, 7, 14.5, 0.35)`,
-    ).run(p.product_id, p.product_number, p.full_name, p.producer, p.vintage, p.price, p.availability ?? "order_only", p.taste);
+         'Rött vin', 750, ?, ?, 0, ?, ?, ?, ?, ?, 14.5, 0.35)`,
+    ).run(
+      p.product_id,
+      p.product_number,
+      p.full_name,
+      p.producer,
+      p.vintage,
+      p.price,
+      p.availability ?? "order_only",
+      p.taste,
+      ...(p.clocks ?? [11, 11, 1, 7]),
+    );
     for (const g of p.grapes ?? []) {
       db.prepare(`INSERT INTO product_grape VALUES (?, ?, ?)`).run(p.product_id, g, g);
     }
@@ -221,7 +233,7 @@ test("the cellar survives a restart", () => {
   cellar.add({ product_id: "56305", quantity: 4 });
   cellar.close();
   const again = new Cellar(join(dir, "cellar", "cellar.db"), mirror);
-  assert.deepEqual(again.summary(), { wines: 1, bottles: 4, value: null });
+  assert.deepEqual(again.summary(), { wines: 1, bottles: 4, value: null, value_by_currency: {} });
   again.close();
 });
 
@@ -291,12 +303,77 @@ test("a cellar written by the first release gains the new columns and keeps its 
   old.close();
 
   const upgraded = new Cellar(path, mirror);
-  assert.deepEqual(upgraded.summary(), { wines: 1, bottles: 3, value: null });
+  assert.deepEqual(upgraded.summary(), { wines: 1, bottles: 3, value: null, value_by_currency: {} });
   const w = upgraded.update(1, { disgorged_on: "2023", claude_profile: "x", claude_sources: "y" });
   assert.equal(w.disgorged_on, "2023");
   upgraded.close();
 
   const check = new DatabaseSync(path);
-  assert.equal((check.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 2);
+  assert.equal((check.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 3);
   check.close();
+});
+
+const GOSSET: Fixture = {
+  product_id: "65330504",
+  product_number: "9061306",
+  full_name: "Gosset Grand Millésime",
+  producer: "Champagne Gosset",
+  vintage: 2015,
+  price: 1899,
+  taste: null,
+  clocks: [0, 0, 0, 0],
+};
+
+test("an unrated product's all-zero clocks are not copied in as a rating", () => {
+  writeMirror(mirrorPath, [MONTUS, GOSSET]);
+  const unrated = cellar.add({ product_id: "65330504", quantity: 1 }).wine;
+  assert.deepEqual(
+    [unrated.clock_body, unrated.clock_tannin, unrated.clock_sweetness, unrated.clock_fruitacid],
+    [null, null, null, null],
+  );
+  const rated = cellar.add({ product_id: "56305", quantity: 1 }).wine;
+  assert.deepEqual([rated.clock_body, rated.clock_tannin, rated.clock_sweetness, rated.clock_fruitacid], [11, 11, 1, 7]);
+});
+
+test("opening a v2 cellar clears clocks copied in as all zeros, and keeps real ones", () => {
+  const path = join(dir, "v2", "cellar.db");
+  const first = new Cellar(path, mirror);
+  first.add({ name: "placeholder", quantity: 1 }); // creates the schema
+  first.close();
+
+  const raw = new DatabaseSync(path);
+  raw.exec(`
+    INSERT INTO wine (name, quantity, clock_body, clock_tannin, clock_sweetness, clock_fruitacid, added_at, updated_at)
+      VALUES ('Unrated', 1, 0, 0, 0, 0, 'x', 'x'), ('Bone dry', 1, 4, 0, 0, 9, 'x', 'x');
+    PRAGMA user_version = 2;`);
+  raw.close();
+
+  const upgraded = new Cellar(path, mirror);
+  const clocks = (name: string) => {
+    const w = upgraded.list({ search: name, limit: 5, offset: 0 }).items[0];
+    return [w.clock_body, w.clock_tannin, w.clock_sweetness, w.clock_fruitacid];
+  };
+  assert.deepEqual(clocks("Unrated"), [null, null, null, null]);
+  assert.deepEqual(clocks("Bone dry"), [4, 0, 0, 9], "a sweetness of 0 is a real rating");
+  upgraded.close();
+});
+
+test("prices keep the currency they were paid in, and totals are never mixed", () => {
+  cellar.add({ name: "Symphonie", vintage: 2019, quantity: 2, purchase_price: 23.5, purchase_currency: " eur " });
+  cellar.add({ name: "Cuvée Prestige", quantity: 2, purchase_price: 23, purchase_currency: "EUR" });
+  cellar.add({ product_id: "56305", quantity: 1, purchase_price: 429 });
+  const w = cellar.list({ search: "Symphonie", limit: 5, offset: 0 }).items[0];
+  assert.equal(w.purchase_currency, "EUR");
+  assert.equal(w.purchase_price, 23.5);
+
+  // value stays the kronor part; euros are totalled on their own, unconverted.
+  assert.deepEqual(cellar.summary(), {
+    wines: 3,
+    bottles: 5,
+    value: 429,
+    value_by_currency: { SEK: 429, EUR: 93 },
+  });
+
+  const relabelled = cellar.update(w.id, { purchase_currency: null });
+  assert.equal(relabelled.purchase_currency, null, "null clears it back to kronor");
 });

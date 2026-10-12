@@ -52,6 +52,7 @@ export interface WineFields {
   grapes?: string | null;
   volume_ml?: number | null;
   purchase_price?: number | null;
+  purchase_currency?: string | null;
   purchased_on?: string | null;
   purchased_from?: string | null;
   location?: string | null;
@@ -77,6 +78,7 @@ const EDITABLE: (keyof WineFields)[] = [
   "grapes",
   "volume_ml",
   "purchase_price",
+  "purchase_currency",
   "purchased_on",
   "purchased_from",
   "location",
@@ -106,6 +108,7 @@ export interface WineRow {
   volume_ml: number | null;
   quantity: number;
   purchase_price: number | null;
+  purchase_currency: string | null;
   purchased_on: string | null;
   purchased_from: string | null;
   location: string | null;
@@ -169,7 +172,27 @@ export interface ListFilter {
   offset: number;
 }
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
+
+/** What a price means when no currency is recorded: every price before v3 was kronor. */
+export const HOME_CURRENCY = "SEK";
+
+/**
+ * Systembolaget fills all four taste clocks with 0 when it has not rated a
+ * product -- measured: every one of 11,543 wines without a tasting note -- while
+ * a real rating has a body of at least 1. So all-zero means "not rated", and
+ * copying it in as 0 would describe the wine as bone-dry, featherweight and
+ * flat. Sweetness 0 on its own is a real and common rating, which is why only
+ * the all-zero case counts.
+ */
+function rated(p: Record<string, unknown>): boolean {
+  return ![p.clock_body, p.clock_tannin, p.clock_sweetness, p.clock_fruitacid].every((c) => Number(c) === 0);
+}
+
+/** 'eur' and ' EUR ' are the same currency; store one spelling. */
+function normaliseCurrency(f: WineFields): void {
+  if (typeof f.purchase_currency === "string") f.purchase_currency = f.purchase_currency.trim().toUpperCase();
+}
 
 /**
  * Columns added after the first release. Declared once: a fresh cellar and an
@@ -191,6 +214,10 @@ const ADDED_COLUMNS: [name: string, decl: string][] = [
   ["claude_profile", "TEXT"],
   ["claude_sources", "TEXT"],
   ["claude_profiled_on", "TEXT"],
+  // ISO 4217 code of purchase_price. A grower's cellar door sells in euros, and
+  // converting at entry needs a rate for a date that is often not known, so the
+  // price is kept as paid. NULL means SEK, which is what every older price is.
+  ["purchase_currency", "TEXT"],
 ];
 
 const SCHEMA = `
@@ -207,7 +234,7 @@ CREATE TABLE IF NOT EXISTS wine (
   grapes          TEXT,
   volume_ml       INTEGER,
   quantity        INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
-  purchase_price  REAL,     -- per bottle, SEK
+  purchase_price  REAL,     -- per bottle, in purchase_currency (SEK when that is NULL)
   purchased_on    TEXT,
   purchased_from  TEXT,
   location        TEXT,     -- where in the cellar
@@ -282,6 +309,13 @@ export class Cellar {
       for (const [name, decl] of ADDED_COLUMNS) {
         if (!have.has(name)) db.exec(`ALTER TABLE wine ADD COLUMN ${name} ${decl}`);
       }
+      const { user_version: version } = db.prepare(`PRAGMA user_version`).get() as { user_version: number };
+      if (version < 3) {
+        // Before v3 an unrated product's all-zero clocks were copied in as if
+        // they were a rating. See rated().
+        db.exec(`UPDATE wine SET clock_body = NULL, clock_tannin = NULL, clock_sweetness = NULL, clock_fruitacid = NULL
+                 WHERE clock_body = 0 AND clock_tannin = 0 AND clock_sweetness = 0 AND clock_fruitacid = 0`);
+      }
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.db = db;
       return db;
@@ -355,6 +389,7 @@ export class Cellar {
     input: WineFields & { product_id?: string; product_number?: string; quantity: number },
   ): { wine: WineRow; merged: boolean; warnings: string[] } {
     requireSources(input);
+    normaliseCurrency(input);
     const warnings: string[] = [];
     const fields: Record<string, unknown> = {};
     let productId: string | null = null;
@@ -411,14 +446,15 @@ export class Cellar {
       });
       if (vintage === listed) {
         const sugar = p.sugar_g_per_100ml == null ? null : Math.round(Number(p.sugar_g_per_100ml) * 100) / 10;
+        const clocks = rated(p);
         Object.assign(fields, {
           abv: p.abv,
           sugar_g_l: sugar,
           sb_taste: p.taste,
-          clock_body: p.clock_body,
-          clock_tannin: p.clock_tannin,
-          clock_sweetness: p.clock_sweetness,
-          clock_fruitacid: p.clock_fruitacid,
+          clock_body: clocks ? p.clock_body : null,
+          clock_tannin: clocks ? p.clock_tannin : null,
+          clock_sweetness: clocks ? p.clock_sweetness : null,
+          clock_fruitacid: clocks ? p.clock_fruitacid : null,
         });
       } else {
         warnings.push(
@@ -486,6 +522,7 @@ export class Cellar {
    */
   update(id: number, patch: WineFields & { quantity?: number }): WineRow {
     requireSources(patch);
+    normaliseCurrency(patch);
     return this.tx((db) => {
       const before = this.wine(db, id);
       if (!before) throw new Error(`No wine #${id} in the cellar. List the cellar to find its id.`);
@@ -693,15 +730,26 @@ export class Cellar {
     });
   }
 
-  summary(): { wines: number; bottles: number; value: number | null } {
-    const row = this.handle()
+  /**
+   * Totals. What was paid is summed per currency and never converted: the
+   * server has no exchange rates, and a total in kronor that silently treated
+   * €23.50 as 23.50 kr -- or converted at a guessed rate -- would be wrong
+   * without looking it. `value` is the kronor part, as before.
+   */
+  summary(): { wines: number; bottles: number; value: number | null; value_by_currency: Record<string, number> } {
+    const db = this.handle();
+    const row = db
+      .prepare(`SELECT count(*) AS wines, COALESCE(SUM(quantity), 0) AS bottles FROM wine WHERE quantity > 0`)
+      .get() as { wines: number; bottles: number };
+    const paid = db
       .prepare(
-        `SELECT count(*) AS wines, COALESCE(SUM(quantity), 0) AS bottles,
-                SUM(quantity * purchase_price) AS value
-         FROM wine WHERE quantity > 0`,
+        `SELECT COALESCE(purchase_currency, '${HOME_CURRENCY}') AS currency, SUM(quantity * purchase_price) AS total
+         FROM wine WHERE quantity > 0 AND purchase_price IS NOT NULL
+         GROUP BY 1 ORDER BY 1 = '${HOME_CURRENCY}' DESC, 1`,
       )
-      .get() as { wines: number; bottles: number; value: number | null };
-    return { wines: row.wines, bottles: row.bottles, value: row.value };
+      .all() as { currency: string; total: number }[];
+    const value_by_currency = Object.fromEntries(paid.map((p) => [p.currency, Math.round(p.total * 100) / 100]));
+    return { wines: row.wines, bottles: row.bottles, value: value_by_currency[HOME_CURRENCY] ?? null, value_by_currency };
   }
 
   close(): void {
