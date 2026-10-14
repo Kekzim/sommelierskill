@@ -75,7 +75,7 @@ make install                # builds and installs to ~/.local/bin
 bolagetdb sync --store 0102
 
 # Store names and addresses. Required: --store above mirrors a store's
-# assortment, but only this writes the store table the snapshot reads.
+# assortment, but only this writes the store table with names and addresses.
 bolagetdb stores
 
 # Find a store id (queries the API live, writes nothing)
@@ -246,19 +246,20 @@ to Anthropic's egress range. See [mcp-server/README.md](mcp-server/README.md).
 
 ## Skill packages
 
-`make skill` builds a self-contained sommelier package for the Claude apps from
-`skill/`: the persona and method, reference tables mapping ordinary language
-onto the schema, a stdlib-only query script, and a slim snapshot. ~2 MB zipped.
-Skills there run in Anthropic's sandbox and cannot reach this machine, which is
-why the data has to travel with them.
+`make skill` builds the sommelier package for the Claude apps from `skill/`:
+the persona and method, reference tables mapping ordinary language onto the
+schema, and SQL recipes for the server's query tool. About 10 KB zipped. It
+carries no data: the assortment, live stock and the cellar all come from the
+Systembolaget connector, so there is nothing in the package to go stale.
+Without the connector the skill asks for it to be turned on.
 
 ```bash
-make skill      # -> dist/sommelier.zip
+make skill      # -> dist/sommelier.zip, then upload it in claude.ai
 ```
 
-The snapshot carries only products a customer can realistically buy
-(`availability_rank <= 2`), which is ~10,500 of ~27,000. `bolagetdb export
---max-availability-rank 1` narrows it to shelf-stocked only (~5.6 MB).
+Earlier versions bundled a slim snapshot of the assortment as a fallback. It
+was dropped in October 2026: it was only ever as fresh as the last upload, and
+the connector is always there when the skill is used.
 
 For Claude Code, `skill-claude-code/` drives the full database directly,
 including order-only products and live shelf stock. Install it user-wide so it

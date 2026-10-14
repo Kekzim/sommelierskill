@@ -1,67 +1,60 @@
 # Schema and query recipes
 
-## Running queries
+For questions the purpose-built tools do not cover: counting, grouping,
+correlating, boolean tasting-note search. Pass the SQL to
+`systembolaget_query`, one `SELECT` (or `WITH … SELECT`) per call. It is
+read-only, and a query without its own `LIMIT` is capped at 500 rows.
 
-```bash
-python3 scripts/query.py "SELECT full_name, price FROM product LIMIT 5"
-python3 scripts/query.py --format json "SELECT ..."
-python3 scripts/query.py --schema          # full schema + snapshot date
-```
-
-Standard library only. `--limit` caps printed rows (default 50); the query is
-unchanged.
+For ordinary recommendation work, use the purpose-built tools instead: they
+apply the availability rules and paging for you. `systembolaget_search_products`
+is the workhorse, `systembolaget_find_similar` does "like that, but cheaper",
+`systembolaget_upcoming_releases` covers the coming drops, and
+`systembolaget_check_stock` gives live shelf stock.
 
 ## Tables
 
-**`product`** — one row per product.
+**`product`**: one row per product, the full assortment of about 27,000.
 
 | Group | Columns |
 |---|---|
-| Identity | `product_id`, `full_name`, `name`, `name_thin`, `producer`, `country`, `origin1` |
+| Identity | `product_id`, `product_number`, `full_name`, `name`, `name_thin`, `producer`, `country`, `origin1`, `origin2` |
 | Category | `cat1` (Vin/Öl/Sprit/Cider & blanddrycker/Alkoholfritt), `cat2` (Rött vin/Vitt vin/Ale/Whisky/…), `cat3` (style, NULL for ~62% of wine) |
 | Numbers | `vintage`, `price`, `volume_ml`, `abv`, `sek_per_litre` |
-| Availability | `availability` (`stocked`/`limited`), `availability_rank` (1/2) |
-| Assortment code | `assortment_code` — sharper than the display label: `TSE` and `TSV` both show as "Tillfälligt sortiment", `TSS` is "Säsong", `TSLS` is "Lokalt & Småskaligt", `FS`/`FSN`/`FSB` are "Fast sortiment" |
+| Availability | `availability` (`stocked`/`limited`/`order_only`), `availability_rank` (1/2/3) |
+| Assortment code | `assortment_code` is sharper than the display label: `TSE` and `TSV` both show as "Tillfälligt sortiment", `TSS` is "Säsong", `TSLS` is "Lokalt & Småskaligt", `FS`/`FSN`/`FSB` are "Fast sortiment" |
 | Release | `launch_date` (often in the **future**), `sell_start_time` (usually `10:00:00`), `is_news`, `is_web_launch` |
-| Dietary | `is_organic`, `is_vegan`, `is_natural`, `is_gluten_free`, `is_kosher` |
+| Dietary | `is_organic`, `is_vegan`, `is_natural`, `is_gluten_free`, `is_kosher` (NULL means unknown, not no) |
 | Taste clocks 0–12 | `clock_body`, `clock_tannin`, `clock_sweetness`, `clock_bitter`, `clock_fruitacid`, `clock_smokiness` |
 | Text | `taste`, `color`, `usage`, `packaging` |
 
-**`product_grape`** (`product_id`, `grape`, `raw_name`) — `grape` is canonical.
+About 72% of wine is `order_only`: orderable, but not on any shelf. Filter on
+`availability_rank = 1` for what someone can walk in and buy, and widen to 2 or
+3 only when they want something unusual and can wait.
 
-**`product_pairing`** (`product_id`, `pairing`) — see `preferences.md`.
+**`product_grape`** (`product_id`, `grape`, `raw_name`): `grape` is canonical,
+so `Syrah` also finds wines labelled `Shiraz`.
 
-**`product_fts`** — full-text over `full_name`, `producer`, `taste`, `color`,
-`usage`. Join on `rowid`. Diacritics folded, so `korsbar` matches `körsbär`.
+**`product_pairing`** (`product_id`, `pairing`): see `preferences.md`.
 
-**`store`** (`site_id`, `name`, `address`, `city`, `county`) and
-**`store_product`** (`site_id`, `product_id`) — the assortment of the stores
-that have been mirrored. Only some stores are covered; check
-`meta.stores_covered`.
+**`product_fts`**: full-text over `full_name`, `producer`, `taste`, `color`,
+`usage`. Join on `rowid`. Diacritics are folded, so `korsbar` matches `körsbär`.
 
-For a covered store, a product absent from `store_product` is usually one that
-store does not carry — **unless it launched after the snapshot was taken**. The
-assortment was walked before that bottle existed in any shop, so it could not
-have been recorded. Compare `launch_date` with `meta.source_sync`:
+**`store`** (`site_id`, `name`, `city`, `county`) and **`store_product`**
+(`site_id`, `product_id`): the assortment of the stores that are mirrored.
+`systembolaget_data_freshness` lists them, along with the last sync. A store not
+listed is simply not mirrored, which says nothing about what it carries.
 
-```sql
-SELECT p.full_name, p.launch_date,
-       (SELECT value FROM meta WHERE key = 'source_sync') AS snapshot_taken,
-       EXISTS (SELECT 1 FROM store_product sp
-               WHERE sp.product_id = p.product_id AND sp.site_id = '1002') AS at_store
-FROM product p WHERE p.product_id = '<id>'
-```
-
-If `launch_date` is the later of the two, `at_store = 0` means nothing — say the
-snapshot predates the release rather than reporting the shop does not stock it.
-
-**`meta`** — snapshot provenance, including `stores_covered`.
+For a mirrored store, a product absent from `store_product` is usually one that
+store does not carry, **unless it launched after the last sync**. The
+assortment was recorded before that bottle reached any shop. Compare
+`launch_date` with the last sync from `systembolaget_data_freshness`, and use
+`systembolaget_check_stock` for the live answer.
 
 ## Recipes
 
 ### Boolean tasting-note search
 
-Systembolaget's own site cannot do this; single-term search is all it offers.
+Systembolaget's own site cannot do this; it offers single-term search only.
 
 ```sql
 SELECT p.full_name, p.vintage, p.price, p.availability
@@ -70,31 +63,6 @@ WHERE product_fts MATCH 'taste:(tobak AND körsbär) NOT taste:ek'
   AND p.availability_rank = 1
 ORDER BY p.price;
 ```
-
-### Find something similar to a wine they liked
-
-Match on taste-clock distance, prefer shared grapes. Given a Barolo this
-returns Langhe Nebbiolo and Barbaresco.
-
-```sql
-WITH ref AS (
-  SELECT * FROM product WHERE full_name LIKE '%Barolo%' AND availability_rank = 1
-  ORDER BY price LIMIT 1
-),
-refg AS (SELECT grape FROM product_grape WHERE product_id = (SELECT product_id FROM ref))
-SELECT p.full_name, p.producer, p.price,
-       ABS(p.clock_body - ref.clock_body) + ABS(p.clock_tannin - ref.clock_tannin)
-     + ABS(p.clock_sweetness - ref.clock_sweetness) + ABS(p.clock_fruitacid - ref.clock_fruitacid) AS dist,
-       (SELECT count(*) FROM product_grape g
-        WHERE g.product_id = p.product_id AND g.grape IN (SELECT grape FROM refg)) AS shared_grapes
-FROM product p, ref
-WHERE p.cat2 = ref.cat2 AND p.product_id <> ref.product_id
-  AND p.availability_rank = 1 AND p.price < ref.price
-ORDER BY shared_grapes DESC, dist, p.price
-LIMIT 6;
-```
-
-Confirm the reference wine is the one they meant before trusting the result.
 
 ### Food pairing
 
@@ -134,56 +102,20 @@ WHERE p.product_id IN (SELECT product_id FROM product_grape WHERE grape = 'Caber
 ORDER BY p.price LIMIT 10;
 ```
 
-### Does a specific store carry these?
+### Does a mirrored store carry these?
 
 ```sql
 SELECT p.full_name, p.price,
-       MAX(CASE WHEN sp.site_id = '1001' THEN 1 ELSE 0 END) AS wachtmeister,
-       MAX(CASE WHEN sp.site_id = '1002' THEN 1 ELSE 0 END) AS amiralen
+       MAX(CASE WHEN sp.site_id = '1001' THEN 1 ELSE 0 END) AS store_1001,
+       MAX(CASE WHEN sp.site_id = '1002' THEN 1 ELSE 0 END) AS store_1002
 FROM product p
 LEFT JOIN store_product sp ON sp.product_id = p.product_id
 WHERE p.full_name IN ('Southern Ridge Shiraz Victoria', 'Dehesa La Granja')
 GROUP BY p.product_id;
 ```
 
-Or filter a recommendation to one store from the start:
-
-```sql
-SELECT p.full_name, p.country, p.price
-FROM product p
-JOIN store_product sp USING (product_id)
-JOIN product_pairing pr USING (product_id)
-WHERE sp.site_id = '1001' AND pr.pairing = 'Vilt' AND p.availability_rank = 1
-ORDER BY p.clock_body DESC, p.price LIMIT 5;
-```
-
-List covered stores with
-`SELECT * FROM store` — anything not listed is simply not mirrored.
-
-### What is being released soon
-
-Limited products are listed weekly, almost always Thursday or Friday, and are
-**announced before they happen** — the snapshot carries products whose launch
-date is still in the future. That is the one question Systembolaget's own site
-cannot answer ahead of time, and it matters because limited releases sell while
-stocks last and are not restocked.
-
-```sql
-SELECT substr(launch_date,1,10) AS launch, sell_start_time, assortment_code,
-       is_web_launch, full_name, producer, price
-FROM product
-WHERE substr(launch_date,1,10) >= date('now')
-  AND assortment_code LIKE 'TS%'
-ORDER BY launch, price DESC LIMIT 20;
-```
-
-`is_web_launch = 1` marks an allocation drop applied for **online**, not a
-bottle to queue for in a shop — the rarest wines arrive this way. Filter it out
-when someone asks what they can walk in and buy, and never tell them to visit a
-shop on the day for one.
-
-Check the snapshot date first: a launch date "in the future" is only in the
-future relative to when the snapshot was taken.
+For filtering a recommendation to one store, `systembolaget_search_products`
+with `store_id` does the same without SQL.
 
 ### Find a specific bottle
 
@@ -198,7 +130,8 @@ Check the producer before concluding you found it.
 
 - `cat3` is NULL for ~62% of wine. Never filter on it alone.
 - The same wine appears once per vintage and per bottle size. Group by `full_name` and `producer` when presenting.
-- `taste` is populated for 99.7% of `stocked` products but only ~54% of `limited`. A missing note is not a missing flavour.
+- `taste` is populated for 99.7% of `stocked` products, ~54% of `limited` and ~12% of `order_only`. A missing note is not a missing flavour.
+- **An unrated product has all its taste clocks at 0**, not NULL. A filter like `clock_tannin <= 2` therefore also matches every unrated wine. When filtering on clocks, add `clock_body > 0`, since a real rating always has a body of at least 1.
 - Absent text is NULL, not `''`, so `taste IS NOT NULL` works.
 - Compare value with `sek_per_litre`, never raw `price`.
 - Tighten filters progressively. An over-constrained query returning nothing is a worse answer than a looser one returning near misses.

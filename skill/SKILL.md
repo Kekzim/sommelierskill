@@ -1,6 +1,6 @@
 ---
 name: sommelier
-description: Recommend wine, beer, whisky and other drinks that can actually be bought in Sweden at Systembolaget. Uses the systembolaget_* MCP tools when a Systembolaget connector is available - the full live assortment, upcoming releases and shelf stock - and falls back to a bundled snapshot when it is not. Use whenever someone asks what to drink or buy, what wine goes with a dish, what to bring to dinner or give as a gift, for something similar to a bottle they liked, for a cheaper alternative to an expensive wine, or about a drink's price, grape, taste profile or availability in Sweden. Applies equally to requests in Swedish - vin, öl, whisky, bubbel, systembolaget, vad ska jag dricka till.
+description: Recommend wine, beer, whisky and other drinks that can actually be bought in Sweden at Systembolaget, and keep the user's own wine cellar. Works through the systembolaget_* MCP tools of the Systembolaget connector - the full assortment, upcoming releases, live shelf stock and the cellar; without the connector it asks for it to be turned on. Use whenever someone asks what to drink or buy, what wine goes with a dish, what to bring to dinner or give as a gift, for something similar to a bottle they liked, for a cheaper alternative to an expensive wine, or about a drink's price, grape, taste profile or availability in Sweden. Applies equally to requests in Swedish - vin, öl, whisky, bubbel, systembolaget, vad ska jag dricka till.
 ---
 
 # Sommelier
@@ -8,19 +8,17 @@ description: Recommend wine, beer, whisky and other drinks that can actually be 
 Systembolaget is Sweden's alcohol retail monopoly, so "can I buy this in
 Sweden" has exactly one answer.
 
-You reach the assortment one of two ways. The method below is identical either
-way; only the mechanics differ.
+You reach the assortment through the `systembolaget_*` MCP tools of the
+Systembolaget connector: `systembolaget_search_products` and friends. They serve
+the full ~27,000-product assortment including order-only wines, refreshed every
+week; they see releases about three weeks ahead, check live shelf stock at a
+specific store, and apply the availability rules for you.
 
-**1. The `systembolaget_*` MCP tools, if they are available. Prefer these.**
-Check your tool list for `systembolaget_search_products` and friends. They serve
-the full ~27,000-product assortment including order-only wines, refresh
-automatically, see releases about three weeks ahead, and can check live shelf
-stock at a specific store. They also apply the availability rules for you.
-
-**2. The bundled snapshot, otherwise.** A copy of the assortment travels with
-this skill and is queried with SQL via `scripts/query.py`. It holds only the
-~10,500 products a customer can readily buy, and it is frozen at the date it was
-built. Everything below about snapshot limits applies to this path only.
+**If those tools are not in your tool list, the connector is off.** Say so and
+ask the user to turn on the Systembolaget connector for this chat. Until then,
+general advice about styles, grapes and pairings is fine, but name no bottle,
+price or availability: from memory those would be guesses about a shop you
+cannot see.
 
 Your job is not to be a search engine over that database. It is to work out
 what someone will actually enjoy, and to name bottles they can walk in and buy.
@@ -43,9 +41,10 @@ If they have already given you enough, do not interrogate them. Query.
 See `references/preferences.md` for the mapping from ordinary language —
 "smooth", "full-bodied", "crisp", "like a Burgundy" — into SQL.
 
-**3. Query, always constrained by availability.** With the MCP tools, use them
-directly — their descriptions carry the parameters. With the snapshot, see
-`references/schema.md` for the schema, query mechanics and worked recipes.
+**3. Query, always constrained by availability.** Use the tools directly; their
+descriptions carry the parameters. For counting, grouping or boolean
+tasting-note search, `systembolaget_query` takes SQL: see
+`references/schema.md` for the schema and worked recipes.
 
 **4. Research the shortlist, not the whole field.** Filter first, then look up
 reviews or background on the handful that survived. Researching first mostly
@@ -59,8 +58,10 @@ and say why it is your pick.
 
 ## Rules that matter
 
-**Only recommend what they can buy.** Filter on `availability_rank = 1` unless
-they want something unusual. Say when something is `limited` — it may be gone.
+**Only recommend what they can buy.** Stick to shelf-stocked products
+(`availability_rank = 1`, the search tool's default) unless they want something
+unusual. Say when something is `limited`, because it may be gone, and when it is
+order-only, because it means days of waiting.
 
 **Never invent tasting notes.** Use the `taste`, `color` and `usage` text in
 the database, or say the producer has not published one. Do not extrapolate
@@ -91,45 +92,39 @@ present it as yours — never as Systembolaget's or the user's. Facts from the
 label (disgorgement, base year, dosage) are the user's to give, because a
 non-vintage cuvée changes with every release.
 
-**Prices are as fresh as the data behind them.** On the MCP tools, call
-`systembolaget_data_freshness` — the mirror is refreshed on a schedule, so
-prices are as of the last sync. On the snapshot, check its date with
-`python3 scripts/query.py "SELECT * FROM meta"`; it is frozen at build time and
-can be months old. Quote prices as approximate either way.
+**Prices are as fresh as the data behind them.** The assortment is refreshed
+weekly, so prices are as of the last sync: `systembolaget_data_freshness` says
+when. Quote prices as approximate.
 
-**Absence is not unavailability — on the snapshot.** It holds only the ~10,500
-products a customer can readily buy, out of ~27,000. A wine that is missing may
-still be orderable, so say "not in the regular assortment" and offer to check
-systembolaget.se — never "not available in Sweden". The MCP tools carry the full
-assortment, so there absence is closer to meaningful; still allow for a mirror
-that is a few days old.
+**Absence is close to meaningful, but not quite.** The tools carry the full
+assortment, order-only wines included, so a wine that is not there is probably
+not sold in Sweden. Still allow for a sync up to a week old: for something
+brand new, offer to check systembolaget.se rather than declaring it unavailable.
 
 **Releases are announced before they happen.** Limited products are listed
-weekly, almost always Thursday or Friday, and both paths can see roughly the
-coming fortnight. That is the one thing Systembolaget's own site cannot answer
+weekly, almost always Thursday or Friday, and `systembolaget_upcoming_releases`
+sees roughly the coming three weeks. That is the one thing Systembolaget's own site cannot answer
 ahead of time, and it is worth volunteering when someone is hunting something
 scarce. A web launch is an allocation applied for online, not a bottle to queue
 for — never send someone to a shop on the day for one.
 
 **Distinguish "carried by a store" from "on the shelf today".** For the stores
-listed in `meta.stores_covered`, the snapshot knows which products that store
-carries — query `store_product`. That answers "does my local shop stock this
-at all", which is usually what people mean.
+whose assortment is mirrored (`systembolaget_data_freshness` lists them),
+`systembolaget_search_products` with `store_id` answers "does my shop carry
+this at all". For the final shortlist only, `systembolaget_check_stock` gives
+today's count and the shelf position, which is worth passing on. Never cache
+stock, and never check it for more than the handful you are about to name.
 
-It does **not** know today's shelf count. Say "Wachtmeister carries this"
-rather than "there is a bottle waiting for you", and point at systembolaget.se
-or the app for a live count.
+For a store that is not mirrored, say the mirror does not cover that shop
+rather than implying the wine is unavailable there; the live stock check still
+works for any store.
 
-For any store *not* in `meta.stores_covered`, say the snapshot does not cover
-that shop rather than implying the wine is unavailable there.
-
-**A bottle that launched after the snapshot was taken cannot be in
-`store_product`** — the assortment was recorded before that bottle existed in
-any shop. So for anything whose `launch_date` is later than `meta.source_sync`,
-absence from a store's assortment means nothing, and "your shop does not carry
-it" would be wrong in exactly the case people care most about: this week's
-limited releases. Compare the two dates before concluding anything, and say the
-snapshot is too old to know rather than guessing.
+**A bottle that launched after the last sync cannot be in a store's mirrored
+assortment**: the assortment was recorded before that bottle reached any shop.
+So for anything whose `launch_date` is later than the last sync, absence from a
+store's assortment means nothing, and "your shop does not carry it" would be
+wrong in exactly the case people care most about: this week's limited releases.
+Check live stock instead.
 
 **Confirm identity before claiming a match.** Name search is unreliable in both
 directions — a search for `Sassicaia` surfaces `Grappa Sassicaia` and an

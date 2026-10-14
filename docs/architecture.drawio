@@ -19,8 +19,8 @@
         <mxCell id="conn" value="&lt;b&gt;Custom connector&lt;/b&gt;&lt;br&gt;MCP client, bearer token&lt;br&gt;&lt;br&gt;calls leave Anthropic&lt;br&gt;from 160.79.104.0/21" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#ffffff;strokeColor=#C96442;" vertex="1" parent="claude">
           <mxGeometry as="geometry" x="500" y="50" width="200" height="110" />
         </mxCell>
-        <mxCell id="snap" value="&lt;b&gt;Bundled snapshot&lt;/b&gt;&lt;br&gt;slim SQLite, built&lt;br&gt;from the mirror" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fontSize=14;fillColor=#ffffff;strokeColor=#C96442;dashed=1;" vertex="1" parent="claude">
-          <mxGeometry as="geometry" x="260" y="210" width="180" height="95" />
+        <mxCell id="snap" value="&lt;i&gt;The skill carries no data: the assortment, live stock and the cellar all come through the connector.&lt;/i&gt;" style="text;html=1;whiteSpace=wrap;fontSize=12;align=left;verticalAlign=top;fontColor=#8a4b33;" vertex="1" parent="claude">
+          <mxGeometry as="geometry" x="250" y="190" width="200" height="80" />
         </mxCell>
         <mxCell id="cf" value="Cloudflare" style="swimlane;whiteSpace=wrap;html=1;startSize=32;rounded=1;arcSize=3;fontSize=15;fontStyle=1;horizontal=1;align=left;spacingLeft=12;fillColor=#fff2cc;strokeColor=#d6b656;swimlaneFillColor=#FFFCEF;" vertex="1" parent="1">
           <mxGeometry as="geometry" x="800" y="80" width="440" height="320" />
@@ -64,16 +64,13 @@
         <mxCell id="search" value="&lt;b&gt;Product search&lt;/b&gt;&lt;br&gt;the whole assortment" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=14;verticalAlign=middle;fillColor=#ffffff;strokeColor=#82b366;" vertex="1" parent="sb">
           <mxGeometry as="geometry" x="740" y="48" width="180" height="72" />
         </mxCell>
-        <mxCell id="legend" value="&lt;b&gt;How to read it&lt;/b&gt;&lt;br&gt;Arrows run from caller to callee.&lt;br&gt;Dashed: a fallback, or the LAN route.&lt;br&gt;&lt;font color=&quot;#b85450&quot;&gt;&lt;b&gt;Red&lt;/b&gt;&lt;/font&gt;: the only data that can't be rebuilt from Systembolaget." style="text;html=1;whiteSpace=wrap;fontSize=12;align=left;verticalAlign=top;fontColor=#444444;rounded=1;strokeColor=#bbbbbb;fillColor=#ffffff;spacing=10;arcSize=6;" vertex="1" parent="1">
+        <mxCell id="legend" value="&lt;b&gt;How to read it&lt;/b&gt;&lt;br&gt;Arrows run from caller to callee.&lt;br&gt;Dashed: the LAN route, no tunnel.&lt;br&gt;&lt;font color=&quot;#b85450&quot;&gt;&lt;b&gt;Red&lt;/b&gt;&lt;/font&gt;: the only data that can't be rebuilt from Systembolaget." style="text;html=1;whiteSpace=wrap;fontSize=12;align=left;verticalAlign=top;fontColor=#444444;rounded=1;strokeColor=#bbbbbb;fillColor=#ffffff;spacing=10;arcSize=6;" vertex="1" parent="1">
           <mxGeometry as="geometry" x="40" y="870" width="220" height="96" />
         </mxCell>
         <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;" edge="1" parent="1" source="chat" target="skill">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
         <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;" edge="1" parent="1" source="skill" target="conn">
-          <mxGeometry as="geometry" relative="1" />
-        </mxCell>
-        <mxCell id="e3" value="fallback" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;dashed=1;dashPattern=6 4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="skill" target="snap">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
         <mxCell id="e4" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;strokeWidth=1.5;strokeColor=#444444;fontSize=12;labelBackgroundColor=#ffffff;fontColor=#333333;" edge="1" parent="1" source="conn" target="waf">

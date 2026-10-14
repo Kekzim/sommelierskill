@@ -22,16 +22,14 @@ data, so every `query`, `stats` and `export` fails until it is built:
 make install                                        # -> ~/.local/bin/bolagetdb
 bolagetdb sync --store 0102 --store 1001 --store 1002
 bolagetdb stores                                    # store metadata, one API call
-make skill                                          # -> dist/sommelier.zip
 ```
 
 **`bolagetdb stores` with no arguments is a required step, not an optional
 one.** `sync --store` mirrors a store's *assortment* into `store_product`; the
 `store` table holding names and addresses is only written by the bare `stores`
 command. Skip it and `bolagetdb stats` reports `stores 0` while the assortments
-are demonstrably present, and worse, `export` copies store names into the
-snapshot — so the shipped skill knows site `1001` carries a wine but not that it
-is Wachtmeister. `--search` does *not* do this: it queries the API live and
+are demonstrably present, and the MCP server knows site `1001` carries a wine
+but not that it is Wachtmeister. `--search` does *not* do this: it queries the API live and
 prints, writing nothing.
 
 The sync takes ~25 minutes. **Run it in a real terminal, not as a backgrounded
@@ -60,7 +58,6 @@ dependency.
 ```bash
 make install                # build + install to ~/.local/bin
 make skill                  # build the Claude apps package -> dist/sommelier.zip
-make skill-nas              # ...but from the NAS mirror, which is the current one
 make release VERSION=v1.0.3 # build + push both container images to GHCR
 make build                  # -> ./bolagetdb
 make test                   # go test ./...
@@ -420,11 +417,10 @@ Known open items, so a fresh session does not have to rediscover them:
   new setting; the new one prints `cellar <dir>` or `cellar disabled` so the
   difference is visible.
 
-  Remaining: re-upload the apps skill (`make skill-nas`) so claude.ai has the
-  cellar rules; confirm the Appdata Backup plugin covers
+  Remaining: confirm the Appdata Backup plugin covers
   `/mnt/user/appdata/sommelier-cellar`, the only directory here that cannot be
-  rebuilt; then enter the Champagnes — fields in `mcp-server/README.md` — and
-  work through the `needs_profile` queue.
+  rebuilt. Two thirds of the Champagnes are entered (49 wines by 2026-10-14) and
+  every one has a profile; the last third is still to come.
 
   The first third of the cellar went in on 2026-10-12 (33 wines, 42 bottles),
   and it exposed two gaps, closed in the next release. Grower prices are euros
@@ -566,8 +562,9 @@ skill.
 
 Both skills carry the **same** method, rules and tone — that part is
 runtime-independent and any change to one belongs in the other. What differs is
-only the mechanics: `bolagetdb query` over all ~27k products with a live stock
-check, versus `query.py` over the bundled ~10.5k snapshot.
+only the mechanics: the Claude Code skill falls back to `bolagetdb query` on the
+local mirror when the MCP tools are missing, while the apps skill has no
+fallback and asks for the connector to be turned on.
 
 `references/preferences.md` is a **symlink** to `skill/references/preferences.md`,
 not a copy. It is pure domain judgement with no runtime coupling, so the two
@@ -585,34 +582,26 @@ readlink -f ~/.claude/skills/sommelier/references/preferences.md
 ```
 
 `skill/` — **the Claude apps** (claude.ai / desktop). This is the source;
-`make skill` copies it into `dist/sommelier/`, adds the exported snapshot and
-zips it (~2.0 MB). `dist/` is gitignored — edit `skill/`, never `dist/`.
+`make skill` copies it into `dist/sommelier/` and zips it (~10 KB). `dist/` is
+gitignored — edit `skill/`, never `dist/`. After any change, upload the zip in
+claude.ai; nothing else updates it.
 
-**`make skill` exports from whichever mirror is on the machine running it**, and
-on a workstation that is whatever was last synced *here* — which is nobody's job
-and drifts. The NAS mirror is the one actually kept current, refreshed weekly by
-the sync container, so `make skill-nas` copies that over `scp` and builds from
-it. It asks for the NAS password; there is no key installed.
-
-A stale snapshot is invisible — the package looks identical and simply gives old
-prices and misses new releases — so every build now prints the snapshot's
-`source_sync` age and warns past ten days, a little over one sync cycle. That
-warning is how this was noticed: the shipped snapshot was thirteen days old
-while the NAS had data from that morning.
-
-Any mirror works as the source: `make skill SKILL_DB=/path/to/bolaget.db`.
+**It carries no data, on purpose.** Until October 2026 the package bundled a
+slim snapshot of the assortment (~10,500 products, ~2 MB) and a `query.py` to
+read it, as a fallback for chats without the connector. The snapshot was only
+as fresh as the last upload, and a stale one looks identical to a fresh one, so
+the risk was quiet wrong prices. The connector is always present when the skill
+is used, so the fallback was dropped. The skill now says to turn the connector
+on, and names no bottle or price until it is. `bolagetdb export` and the `slim`
+column flag still exist but nothing in the build uses them.
 
   skill/SKILL.md                  persona, method, the rules that matter
-  skill/references/preferences.md ordinary language -> SQL (the domain artifact)
-  skill/references/schema.md      schema, query mechanics, tested recipes
-  skill/scripts/query.py          stdlib-only runner
+  skill/references/preferences.md ordinary language -> filters (the domain artifact)
+  skill/references/schema.md      schema and SQL recipes for systembolaget_query
 
 SKILL.md is loaded always; the references only when needed, so keep the method
 in SKILL.md and the lookup tables in references. `preferences.md` is the piece
 with real domain judgement in it — the taste-clock mappings, the Swedish
 flavour vocabulary, the "something like a Burgundy" translations.
 
-The snapshot holds only `availability_rank <= 2` — the ~10,500 products a
-customer can realistically buy, out of ~27,000. That keeps it small, but means
-absence from the snapshot does not imply absence from Systembolaget, and the
-app-side skill says so explicitly.
+
