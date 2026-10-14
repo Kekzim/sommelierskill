@@ -113,9 +113,13 @@ today may not be the one on their shelf. A wrong vintage copies the wrong
 tasting note. Bottles bought elsewhere are added by name.
 
 **The rack has one bottle per slot.** Where the server has a rack configured,
-a location like `B3, C3` is a list of slots, one per bottle. Before adding or
-moving bottles, `cellar_list` with `rack: true` shows what is free; suggest a
-slot rather than inventing one. When a bottle leaves a wine kept in several
+a location like `B3, C3` is a list of slots, one per bottle. Letters are
+columns, left to right, and numbers are rows, top to bottom: B3 is column B,
+row 3. "Show me the rack" is one call, `cellar_list` with `rack: true`. Show
+the grid it returns as it is, or draw from its JSON (columns, rows, each wine's
+name, style, size and drinking window). Never rebuild the grid from the wine
+list, and never transpose it. Before adding or moving bottles, that same call
+shows what is free; suggest a slot rather than inventing one. When a bottle leaves a wine kept in several
 slots, ask which slot it came from and pass it as `slots`: the server refuses a
 guess.
 

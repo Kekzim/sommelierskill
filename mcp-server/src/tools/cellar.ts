@@ -211,11 +211,12 @@ function written(cellar: Cellar, w: WineRow, headline: string, extra: Record<str
 
 /** The rack as a grid: '#id' in a taken slot, '·' in a free one, then who each id is. */
 function rackMarkdown(map: RackMap): string {
-  const columns = [...new Set(map.slots.map((s) => s.slot[0]))];
-  const rows = [...new Set(map.slots.map((s) => Number(s.slot.slice(1))))];
+  const { columns, rows } = map;
   const at = new Map(map.slots.map((s) => [s.slot, s.wine_id]));
   const lines = [
     `# Rack ${map.rack}`,
+    "",
+    `${map.orientation} Show this grid as it is.`,
     "",
     `${map.slots.length - map.free.length} of ${map.slots.length} slots taken, ${map.free.length} free.`,
     "",
@@ -252,7 +253,7 @@ Args:
   - min_rating (number 1-5): wines the user has rated at least this highly -- "the ones I loved"
   - needs_profile (boolean): wines with neither a Systembolaget note nor a Claude profile -- the queue for filling in
   - include_empty (boolean): include wines with no bottles left, for "what was that wine I had" (default: false)
-  - rack (boolean): show the rack instead of the list -- which slot holds which wine, which slots are free, and which wines are kept elsewhere. Use it to suggest a slot before adding or moving bottles
+  - rack (boolean): show the rack instead of the list -- which slot holds which wine, which slots are free, and which wines are kept elsewhere. One call answers "show me the rack": present the grid it returns as it is, or with response_format='json' draw from it (columns, rows and per-wine producer, name, vintage, size, style, grapes and drink_until are all included). Letters are columns, numbers are rows: B3 is column B, row 3. Use it too to suggest a slot before adding or moving bottles
   - sort ('drink_until' | 'name' | 'vintage' | 'added' | 'rating'), limit, offset, response_format
 
 Returns each wine with bottles, drinking window, location, price paid, both kinds of note, the user's average rating, and what Systembolaget sells under that product now -- flagged when it has moved on to a different vintage.

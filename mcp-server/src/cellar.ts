@@ -332,11 +332,34 @@ function wineLabel(w: { id: number; producer: string | null; name: string; vinta
   return `#${w.id} ${[w.producer, w.name, w.vintage ?? "NV"].filter(Boolean).join(" ")}`;
 }
 
+/**
+ * Said in every rack answer, because a reader drawing the grid has nothing else
+ * to go on: one session laid A–L out as rows and got the whole rack transposed.
+ */
+export const RACK_ORIENTATION =
+  "Letters are columns, left to right; numbers are rows, top to bottom. B3 is column B, row 3.";
+
 export interface RackMap {
   rack: string;
-  /** Every slot in reading order: the wine in it, or null when it is free. */
+  orientation: string;
+  /** Column letters left to right, and row numbers top to bottom. */
+  columns: string[];
+  rows: number[];
+  /** Every slot in reading order, row by row: the wine in it, or null when it is free. */
   slots: { slot: string; wine_id: number | null }[];
-  wines: { wine_id: number; label: string; slots: string[] }[];
+  /** Enough to draw and filter the rack from this one answer, without listing the cellar. */
+  wines: {
+    wine_id: number;
+    label: string;
+    slots: string[];
+    producer: string | null;
+    name: string;
+    vintage: number | null;
+    volume_ml: number | null;
+    style: string | null;
+    grapes: string | null;
+    drink_until: number | null;
+  }[];
   free: string[];
   /** Wines with bottles but a location that is not a slot ("fridge"), or none at all. */
   elsewhere: { wine_id: number; label: string; quantity: number; location: string | null }[];
@@ -422,12 +445,26 @@ export class Cellar {
       .all() as unknown as WineRow[];
     return {
       rack: r.spec,
+      orientation: RACK_ORIENTATION,
+      columns: r.columns,
+      rows: r.rows,
       slots: r.rows.flatMap((row) =>
         r.columns.map((c) => ({ slot: `${c}${row}`, wine_id: taken.get(`${c}${row}`)?.id ?? null })),
       ),
       wines: bottled
         .filter((w) => slotsIn(w.location).length)
-        .map((w) => ({ wine_id: w.id, label: wineLabel(w), slots: slotsIn(w.location) })),
+        .map((w) => ({
+          wine_id: w.id,
+          label: wineLabel(w),
+          slots: slotsIn(w.location),
+          producer: w.producer,
+          name: w.name,
+          vintage: w.vintage,
+          volume_ml: w.volume_ml,
+          style: w.style,
+          grapes: w.grapes,
+          drink_until: w.drink_until,
+        })),
       free: this.freeSlots(taken),
       elsewhere: bottled
         .filter((w) => !slotsIn(w.location).length)

@@ -134,6 +134,8 @@ test("the rack view and slot-freeing work through MCP", async () => {
 
     const map = text(await client.callTool({ name: "systembolaget_cellar_list", arguments: { rack: true } }));
     assert.match(map, /# Rack A-C:1-2/);
+    assert.match(map, /Letters are columns, left to right; numbers are rows, top to bottom/);
+    assert.match(map, /\| \| A \| B \| C \|/, "columns across the top");
     assert.match(map, /2 of 6 slots taken, 4 free/);
     assert.match(map, /\| \*\*1\*\* \| #1 \| #1 \| · \|/);
 

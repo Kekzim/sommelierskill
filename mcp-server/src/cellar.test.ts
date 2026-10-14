@@ -448,7 +448,11 @@ test("the rack map shows who is where, what is free, and what lives elsewhere", 
     const map = rack.rackMap()!;
     assert.deepEqual(map.free, ["B1", "B2"]);
     assert.deepEqual(map.slots.map((s) => [s.slot, s.wine_id]), [["A1", 1], ["B1", null], ["A2", 1], ["B2", null]]);
-    assert.deepEqual(map.wines, [{ wine_id: 1, label: "#1 Left NV", slots: ["A1", "A2"] }]);
+    assert.deepEqual(map.wines.map((w) => [w.wine_id, w.label, w.slots, w.name]), [[1, "#1 Left NV", ["A1", "A2"], "Left"]]);
+    // A reader drawing the grid must not have to guess which way round it goes.
+    assert.deepEqual(map.columns, ["A", "B"]);
+    assert.deepEqual(map.rows, [1, 2]);
+    assert.match(map.orientation, /Letters are columns.*numbers are rows/);
     assert.deepEqual(map.elsewhere, [{ wine_id: 2, label: "#2 Cold NV", quantity: 1, location: "fridge" }]);
   } finally {
     rack.close();
