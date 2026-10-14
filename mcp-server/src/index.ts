@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { Mirror } from "./db.js";
-import { Cellar } from "./cellar.js";
+import { Cellar, parseRack } from "./cellar.js";
 import { registerSearchTools } from "./tools/search.js";
 import { registerProductTools } from "./tools/product.js";
 import { registerReleaseTools } from "./tools/releases.js";
@@ -29,8 +29,13 @@ const stockKey = new StockKey(process.env.SYSTEMBOLAGET_API_KEY || undefined);
 // Optional. Unset means no cellar tools at all -- the server stays read-only.
 const cellarPath = process.env.CELLAR_DB_PATH || undefined;
 
+// Optional: the rack as columns:rows, e.g. A-L:1-14. Set, slot locations are
+// checked; unset, locations stay free text. A malformed value stops the server
+// here rather than silently disabling the check.
+const rack = parseRack(process.env.CELLAR_RACK);
+
 const mirror = new Mirror(dbPath);
-const cellar = cellarPath ? new Cellar(cellarPath, mirror) : null;
+const cellar = cellarPath ? new Cellar(cellarPath, mirror, rack) : null;
 
 function buildServer(): McpServer {
   const server = new McpServer({ name: "systembolaget-mcp-server", version: "1.0.0" });
@@ -115,7 +120,7 @@ app.get("/health", (_req, res) => {
   // when a bottle fails to save.
   if (cellar) {
     try {
-      body.cellar = { path: cellar.path, ...cellar.summary() };
+      body.cellar = { path: cellar.path, rack: cellar.rack?.spec ?? null, ...cellar.summary() };
     } catch (err) {
       body.ok = false;
       body.cellar = { path: cellar.path, error: (err as Error).message };
@@ -165,6 +170,7 @@ app.listen(port, host, () => {
   console.error(`  auth:       ${authToken ? "bearer token required" : "DISABLED (set MCP_AUTH_TOKEN)"}`);
   console.error(`  live stock: key ${stockKey.source}`);
   console.error(`  cellar:     ${cellarPath ?? "disabled (set CELLAR_DB_PATH)"}`);
+  if (cellar) console.error(`  rack:       ${rack ? rack.spec : "none (set CELLAR_RACK to check slots)"}`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

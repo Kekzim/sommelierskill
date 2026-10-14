@@ -49,6 +49,7 @@ CRON_SCHEDULE=${CRON_SCHEDULE:-0 19 * * 5}
 SYNC_STORES=${SYNC_STORES:-1001 1002}
 SYSTEMBOLAGET_API_KEY=${SYSTEMBOLAGET_API_KEY:-}
 CELLAR_DIR=${CELLAR_DIR:-}
+CELLAR_RACK=${CELLAR_RACK:-}
 
 die() { echo "run.sh: $*" >&2; exit 1; }
 
@@ -108,7 +109,7 @@ start_mcp() {
   # Positional parameters are this function's own, so this does not touch the
   # script's arguments.
   set --
-  [ -z "$CELLAR_DIR" ] || set -- -v "$CELLAR_DIR:/cellar" -e CELLAR_DB_PATH=/cellar/cellar.db
+  [ -z "$CELLAR_DIR" ] || set -- -v "$CELLAR_DIR:/cellar" -e CELLAR_DB_PATH=/cellar/cellar.db -e CELLAR_RACK="$CELLAR_RACK"
   docker pull "$MCP_IMAGE"
   docker rm -f sommelier-mcp >/dev/null 2>&1 || true
   # /data read-only: the server has no business writing the mirror, and the
@@ -122,7 +123,7 @@ start_mcp() {
     -v "$APPDATA:/data:ro" \
     "$@" \
     "$MCP_IMAGE" >/dev/null
-  echo "sommelier-mcp: $MCP_IMAGE on ${BIND_ADDR}:${HOST_PORT}, cellar ${CELLAR_DIR:-disabled}"
+  echo "sommelier-mcp: $MCP_IMAGE on ${BIND_ADDR}:${HOST_PORT}, cellar ${CELLAR_DIR:-disabled}, rack ${CELLAR_RACK:-none}"
   restart_tunnel
 }
 

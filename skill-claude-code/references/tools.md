@@ -112,6 +112,13 @@ keeps a product's id when the next vintage arrives, so the vintage it lists
 today may not be the one on their shelf. A wrong vintage copies the wrong
 tasting note. Bottles bought elsewhere are added by name.
 
+**The rack has one bottle per slot.** Where the server has a rack configured,
+a location like `B3, C3` is a list of slots, one per bottle. Before adding or
+moving bottles, `cellar_list` with `rack: true` shows what is free; suggest a
+slot rather than inventing one. When a bottle leaves a wine kept in several
+slots, ask which slot it came from and pass it as `slots`: the server refuses a
+guess.
+
 **Removing: ask how it was, once.** If they have not given a verdict, ask for a
 rating and a line on the food or occasion — that is what turns later
 suggestions into theirs. If they would rather not, record it without. A rating

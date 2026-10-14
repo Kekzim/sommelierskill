@@ -7,6 +7,7 @@ import {
   EventRow,
   ListedWine,
   REMOVAL_REASONS,
+  RackMap,
   WineRow,
   thisYear,
 } from "../cellar.js";
@@ -62,7 +63,11 @@ const wineFields = {
     .optional()
     .describe("Purchase date, as precise as known: YYYY, YYYY-MM or YYYY-MM-DD"),
   purchased_from: text(200, "Where it was bought, e.g. 'Systembolaget', 'a vineyard in Alsace', 'gift'"),
-  location: text(200, "Where it is in the cellar, e.g. 'rack B, row 3'"),
+  location: text(
+    200,
+    "Where the bottles are: rack slots, one per bottle, comma-separated ('B3, C3'), or free text ('fridge'). " +
+      "Slots are checked against the rack: inside it and not held by another wine",
+  ),
   drink_from: year.nullable().optional().describe("First year it is ready to drink"),
   drink_until: year.nullable().optional().describe("Last year it should be drunk by"),
   notes: z.string().trim().max(4000).nullable().optional().describe("The user's own notes about this wine"),
@@ -204,6 +209,30 @@ function written(cellar: Cellar, w: WineRow, headline: string, extra: Record<str
   };
 }
 
+/** The rack as a grid: '#id' in a taken slot, '·' in a free one, then who each id is. */
+function rackMarkdown(map: RackMap): string {
+  const columns = [...new Set(map.slots.map((s) => s.slot[0]))];
+  const rows = [...new Set(map.slots.map((s) => Number(s.slot.slice(1))))];
+  const at = new Map(map.slots.map((s) => [s.slot, s.wine_id]));
+  const lines = [
+    `# Rack ${map.rack}`,
+    "",
+    `${map.slots.length - map.free.length} of ${map.slots.length} slots taken, ${map.free.length} free.`,
+    "",
+    `| | ${columns.join(" | ")} |`,
+    `|---|${columns.map(() => "---").join("|")}|`,
+    ...rows.map((r) => `| **${r}** | ${columns.map((c) => (at.get(`${c}${r}`) ? `#${at.get(`${c}${r}`)}` : "·")).join(" | ")} |`),
+    "",
+    "**Who is where**",
+    ...map.wines.map((w) => `- ${w.label}: ${w.slots.join(", ")}`),
+  ];
+  if (map.elsewhere.length) {
+    lines.push("", "**Not in the rack**");
+    lines.push(...map.elsewhere.map((w) => `- ${w.label}: ${w.quantity} bottle(s), ${w.location ?? "no location recorded"}`));
+  }
+  return lines.join("\n");
+}
+
 export function registerCellarTools(server: McpServer, cellar: Cellar): void {
   server.registerTool(
     "systembolaget_cellar_list",
@@ -223,6 +252,7 @@ Args:
   - min_rating (number 1-5): wines the user has rated at least this highly -- "the ones I loved"
   - needs_profile (boolean): wines with neither a Systembolaget note nor a Claude profile -- the queue for filling in
   - include_empty (boolean): include wines with no bottles left, for "what was that wine I had" (default: false)
+  - rack (boolean): show the rack instead of the list -- which slot holds which wine, which slots are free, and which wines are kept elsewhere. Use it to suggest a slot before adding or moving bottles
   - sort ('drink_until' | 'name' | 'vintage' | 'added' | 'rating'), limit, offset, response_format
 
 Returns each wine with bottles, drinking window, location, price paid, both kinds of note, the user's average rating, and what Systembolaget sells under that product now -- flagged when it has moved on to a different vintage.
@@ -232,9 +262,11 @@ Examples:
   - "Anything I should drink before it's too late?" -> drink_window='drink_soon'
   - "What was that Riesling I liked?" -> search='Riesling', include_empty=true, min_rating=4
   - "Fill in the Champagnes I just added" -> needs_profile=true, then research each and systembolaget_cellar_update
+  - "Where's a free slot for these three?" -> rack=true
 
 Error Handling:
-  - An empty cellar returns a message saying so; wines are added with systembolaget_cellar_add.`,
+  - An empty cellar returns a message saying so; wines are added with systembolaget_cellar_add.
+  - rack=true on a server without a configured rack says so.`,
       inputSchema: z
         .object({
           wine_id: z.number().int().min(1).optional().describe("One wine, with its full history"),
@@ -247,6 +279,10 @@ Error Handling:
             .optional()
             .describe("Only wines nobody has described yet: no Systembolaget note and no Claude profile"),
           include_empty: z.boolean().default(false).describe("Include wines with no bottles left (default: false)"),
+          rack: z
+            .boolean()
+            .optional()
+            .describe("Show the rack instead: which slot holds which wine, and which slots are free"),
           sort: z.enum(CELLAR_SORTS).default("drink_until").describe("Sort order (default: drink_until, soonest first)"),
           ...pagingSchema,
         })
@@ -255,6 +291,14 @@ Error Handling:
     },
     async (params) =>
       guard(() => {
+        if (params.rack) {
+          const map = cellar.rackMap();
+          if (!map) return textResult("No rack is configured on this server (CELLAR_RACK), so locations are free text.");
+          return {
+            content: [{ type: "text" as const, text: params.response_format === "json" ? JSON.stringify(map, null, 2) : rackMarkdown(map) }],
+            structuredContent: map as unknown as Record<string, unknown>,
+          };
+        }
         const { total, items } = cellar.list(params);
         if (!items.length) {
           const s = cellar.summary();
@@ -316,7 +360,8 @@ Args:
   - purchase_price (per bottle, as paid), purchase_currency ('EUR'; omit for SEK), purchased_on (YYYY, YYYY-MM or YYYY-MM-DD: as precise as known, never padded), purchased_from
     Record the price in the currency it was paid in. Do not convert it: the rate on the day is rarely known, and the cellar totals each currency separately.
   - abv, sugar_g_l (dosage for sparkling), style, base_vintage, disgorged_on: label facts
-  - location, drink_from, drink_until (years), notes
+  - location: rack slots, one per bottle ('B3, C3'), or free text ('fridge'). Slots must be inside the rack and free; systembolaget_cellar_list with rack=true shows which are. Topping up a wine kept in slots needs the full new list
+  - drink_from, drink_until (years), notes
   - claude_profile, claude_sources: see systembolaget_cellar_update
 
 Returns the wine as stored, whether an existing entry was topped up, and the cellar's new total.
@@ -385,6 +430,7 @@ Returns the wine as stored.
 
 Examples:
   - "Moved the Barolos to the bottom rack" -> location
+  - "Moved the two Pertois to E6 and F6" -> location='E6, F6' (the old slots are freed; a slot held by another wine is refused)
   - "That one is ready from 2028" -> drink_from=2028
   - Filling in a Champagne: claude_profile='Pinot-led and vinous, ...', claude_sources='house tech sheet (url); drinking window: Claude's estimate'
 
@@ -426,15 +472,18 @@ Args:
   - reason ('drunk' | 'gift' | 'sold' | 'broken' | 'other'): default 'drunk'
   - on_date (YYYY-MM-DD): default today
   - rating (1-5), note: the user's verdict
+  - slots (string[]): the rack slot each bottle came from, e.g. ['B3']. Needed when the wine is spread over several slots; ask the user which one if they have not said. The slot is freed
 
-Returns the wine with its remaining count.
+Returns the wine with its remaining count and the slots it still holds.
 
 Examples:
   - "We had the Montus with the lamb, fantastic" -> wine_id, rating=5, note='with lamb, fantastic'
   - "Gave a bottle of the Chablis to my neighbour" -> reason='gift'
+  - "Opened the Pertois from B3" -> wine_id, slots=['B3']
 
 Error Handling:
-  - Taking out more bottles than are recorded is refused; correct the count with systembolaget_cellar_update if it was wrong.`,
+  - Taking out more bottles than are recorded is refused; correct the count with systembolaget_cellar_update if it was wrong.
+  - A wine in several slots, taken out without 'slots', is refused with the slots it is in: ask which one.`,
       inputSchema: z
         .object({
           wine_id: z.number().int().min(1).describe("Cellar wine id"),
@@ -443,6 +492,12 @@ Error Handling:
           on_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").optional().describe("When, YYYY-MM-DD (default: today)"),
           rating: z.number().int().min(1).max(5).optional().describe("The user's rating, 1-5"),
           note: z.string().trim().min(1).max(2000).optional().describe("The user's note: how it was, the food, the occasion"),
+          slots: z
+            .array(z.string().trim().regex(/^[A-Za-z]\d{1,3}$/, "A slot is a column letter and a row number, e.g. 'B3'"))
+            .min(1)
+            .max(1000)
+            .optional()
+            .describe("Rack slot(s) the bottles came from, e.g. ['B3'], one per bottle"),
         })
         .strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -451,7 +506,8 @@ Error Handling:
       guard(() => {
         const wine = cellar.remove(wine_id, r);
         const left = wine.quantity === 0 ? "none left" : `${wine.quantity} left`;
-        return written(cellar, wine, `Took out ${r.quantity} (${r.reason}): ${left}.`);
+        const freed = r.slots?.length ? ` Freed ${r.slots.map((s) => s.toUpperCase()).join(", ")}.` : "";
+        return written(cellar, wine, `Took out ${r.quantity} (${r.reason}): ${left}.${freed}`);
       }),
   );
 }

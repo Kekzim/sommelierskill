@@ -431,6 +431,12 @@ Known open items, so a fresh session does not have to rediscover them:
   with mostly no purchase date, so `purchase_currency` keeps a price as paid
   and totals stay per currency. And a Systembolaget magnum with no tasting
   note was copied in with four taste clocks of 0.
+  The NAS rack is 12 columns by 14 rows (`CELLAR_RACK=A-L:1-14`, v1.4.0).
+  Locations are slot lists, one per bottle. The server enforces in-rack,
+  one-per-bottle and no sharing, and `cellar_remove` takes `slots` to free them.
+  The 59 bottles already stored were checked before the rule went live: no
+  clashes. `run.sh` passes `CELLAR_RACK` only from v1.4.0, so the NAS copy of
+  `run.sh` has to be replaced (the old-run.sh trap above).
 - **Unrated products carry all-zero taste clocks in the mirror, not NULL.**
   Every one of 11,543 wines without a tasting note has body, tannin, sweetness
   and fruit acid all 0. A real rating has body ≥ 1, while sweetness 0 is real

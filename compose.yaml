@@ -63,6 +63,9 @@ services:
       # Optional: the user's cellar, and the four tools that manage it. Empty
       # disables them.
       CELLAR_DB_PATH: ${CELLAR_DB_PATH-/cellar/cellar.db}
+      # Optional: the rack as columns:rows, e.g. A-L:1-14. Set, slot locations
+      # are checked (inside the rack, one per bottle, never shared).
+      CELLAR_RACK: ${CELLAR_RACK:-}
     ports:
       # Bind to the VPN interface, not 0.0.0.0. Default keeps it host-local so a
       # missing BIND_ADDR cannot accidentally publish to every interface.

@@ -288,13 +288,152 @@ export function thisYear(): number {
   return Number(today().slice(0, 4));
 }
 
+/**
+ * The physical rack: lettered columns by numbered rows, one bottle per slot.
+ * Configured as CELLAR_RACK=A-L:1-14. Without one, locations are free text and
+ * nothing is checked, which is how the cellar behaved before racks existed.
+ */
+export interface Rack {
+  spec: string;
+  columns: string[];
+  rows: number[];
+}
+
+export function parseRack(spec: string | undefined): Rack | null {
+  if (!spec?.trim()) return null;
+  const m = spec.trim().toUpperCase().match(/^([A-Z])-([A-Z]):(\d{1,3})-(\d{1,3})$/);
+  const bad = () => new Error(`CELLAR_RACK must be columns:rows such as 'A-L:1-14', got '${spec}'`);
+  if (!m) throw bad();
+  const [c0, c1, r0, r1] = [m[1].charCodeAt(0), m[2].charCodeAt(0), Number(m[3]), Number(m[4])];
+  if (c1 < c0 || r0 < 1 || r1 < r0) throw bad();
+  return {
+    spec: `${m[1]}-${m[2]}:${r0}-${r1}`,
+    columns: Array.from({ length: c1 - c0 + 1 }, (_, i) => String.fromCharCode(c0 + i)),
+    rows: Array.from({ length: r1 - r0 + 1 }, (_, i) => r0 + i),
+  };
+}
+
+const SLOT = /^[A-Z]\d{1,3}$/;
+
+/** "B3, c4 , fridge" -> ["B3", "C4", "fridge"]: slots upper-cased, free text kept as written. */
+function locationParts(location: string | null | undefined): string[] {
+  return (location ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => (SLOT.test(p.toUpperCase()) ? p.toUpperCase() : p));
+}
+
+export function slotsIn(location: string | null | undefined): string[] {
+  return locationParts(location).filter((p) => SLOT.test(p));
+}
+
+function wineLabel(w: { id: number; producer: string | null; name: string; vintage: number | null }): string {
+  return `#${w.id} ${[w.producer, w.name, w.vintage ?? "NV"].filter(Boolean).join(" ")}`;
+}
+
+export interface RackMap {
+  rack: string;
+  /** Every slot in reading order: the wine in it, or null when it is free. */
+  slots: { slot: string; wine_id: number | null }[];
+  wines: { wine_id: number; label: string; slots: string[] }[];
+  free: string[];
+  /** Wines with bottles but a location that is not a slot ("fridge"), or none at all. */
+  elsewhere: { wine_id: number; label: string; quantity: number; location: string | null }[];
+}
+
 export class Cellar {
   private db: DatabaseSync | null = null;
 
   constructor(
     readonly path: string,
     private readonly mirror: Mirror,
+    readonly rack: Rack | null = null,
   ) {}
+
+  private inRack(slot: string): boolean {
+    return !!this.rack && this.rack.columns.includes(slot[0]) && this.rack.rows.includes(Number(slot.slice(1)));
+  }
+
+  /** Which wine holds each slot, among wines that still have bottles. */
+  private occupancy(db: DatabaseSync, exceptId: number | null): Map<string, WineRow> {
+    const rows = db
+      .prepare(`SELECT * FROM wine WHERE quantity > 0 AND location IS NOT NULL AND id IS NOT ?`)
+      .all(exceptId) as unknown as WineRow[];
+    const taken = new Map<string, WineRow>();
+    for (const w of rows) for (const s of slotsIn(w.location)) taken.set(s, w);
+    return taken;
+  }
+
+  /**
+   * Check where a wine's bottles are said to be, and return the location as it
+   * should be stored. Slots must be inside the rack, one per bottle, and not
+   * held by another wine; free text such as "fridge" is accepted as written.
+   * A wine with no bottles left has no place.
+   */
+  private place(db: DatabaseSync, id: number | null, location: string | null | undefined, quantity: number): string | null | undefined {
+    if (!this.rack || location == null) return location;
+    const parts = locationParts(location);
+    const slots = parts.filter((p) => SLOT.test(p));
+    if (!slots.length) return location;
+    if (quantity === 0) return null;
+
+    const outside = slots.filter((s) => !this.inRack(s));
+    if (outside.length) {
+      throw new Error(`${outside.join(", ")} is outside the rack (${this.rackText()}).`);
+    }
+    const twice = slots.filter((s, i) => slots.indexOf(s) !== i);
+    if (twice.length) throw new Error(`${twice.join(", ")} is listed twice: one bottle per slot.`);
+    if (parts.length !== quantity) {
+      throw new Error(
+        `${quantity} bottle(s) need ${quantity} place(s), one slot per bottle, but '${location}' gives ` +
+          `${parts.length}. List a slot for each bottle, e.g. '${slots[0]}, ...'.`,
+      );
+    }
+    const taken = this.occupancy(db, id);
+    const clash = slots.filter((s) => taken.has(s));
+    if (clash.length) {
+      const who = clash.map((s) => `${s} holds ${wineLabel(taken.get(s)!)}`).join("; ");
+      const free = this.freeSlots(taken).slice(0, 8);
+      throw new Error(`Slot already taken: ${who}. Free slots include ${free.join(", ") || "none"}.`);
+    }
+    return parts.join(", ");
+  }
+
+  private rackText(): string {
+    const r = this.rack!;
+    return `columns ${r.columns[0]}–${r.columns.at(-1)}, rows ${r.rows[0]}–${r.rows.at(-1)}`;
+  }
+
+  /** Free slots in reading order: row by row, then column. */
+  private freeSlots(taken: Map<string, WineRow>): string[] {
+    const r = this.rack!;
+    return r.rows.flatMap((row) => r.columns.map((c) => `${c}${row}`)).filter((s) => !taken.has(s));
+  }
+
+  /** The rack as it stands: who is where, what is free, and what lives elsewhere. */
+  rackMap(): RackMap | null {
+    if (!this.rack) return null;
+    const db = this.handle();
+    const taken = this.occupancy(db, null);
+    const r = this.rack;
+    const bottled = db
+      .prepare(`SELECT * FROM wine WHERE quantity > 0 ORDER BY id`)
+      .all() as unknown as WineRow[];
+    return {
+      rack: r.spec,
+      slots: r.rows.flatMap((row) =>
+        r.columns.map((c) => ({ slot: `${c}${row}`, wine_id: taken.get(`${c}${row}`)?.id ?? null })),
+      ),
+      wines: bottled
+        .filter((w) => slotsIn(w.location).length)
+        .map((w) => ({ wine_id: w.id, label: wineLabel(w), slots: slotsIn(w.location) })),
+      free: this.freeSlots(taken),
+      elsewhere: bottled
+        .filter((w) => !slotsIn(w.location).length)
+        .map((w) => ({ wine_id: w.id, label: wineLabel(w), quantity: w.quantity, location: w.location })),
+    };
+  }
 
   private handle(): DatabaseSync {
     if (this.db) return this.db;
@@ -483,6 +622,16 @@ export class Cellar {
       let id: number;
       if (existing) {
         id = existing.id;
+        // The new bottles need slots too: a wine kept in the rack cannot be
+        // topped up without saying where the extra bottles went.
+        const total = existing.quantity + input.quantity;
+        if (input.location === undefined && slotsIn(existing.location).length && this.rack) {
+          throw new Error(
+            `${wineLabel(existing)} is kept in ${existing.location}. Give 'location' with a slot for ` +
+              `each of its ${total} bottles, the new ones included.`,
+          );
+        }
+        if (input.location !== undefined) input.location = this.place(db, existing.id, input.location, total);
         // Topping up keeps the row's identity; only what the caller said
         // explicitly (a new location, price, note) is applied.
         const explicit = EDITABLE.filter((k) => input[k] !== undefined);
@@ -496,6 +645,7 @@ export class Cellar {
       } else {
         const row: Record<string, unknown> = {
           ...fields,
+          location: this.place(db, null, fields.location as string | null | undefined, input.quantity),
           ...(fields.claude_profile ? { claude_profiled_on: today() } : {}),
           product_id: productId,
           product_number: productNumber,
@@ -526,6 +676,20 @@ export class Cellar {
     return this.tx((db) => {
       const before = this.wine(db, id);
       if (!before) throw new Error(`No wine #${id} in the cellar. List the cellar to find its id.`);
+
+      // A move, or a recount, has to leave every bottle in a valid place.
+      const recount = patch.quantity !== undefined && patch.quantity !== before.quantity;
+      if (this.rack && (patch.location !== undefined || recount)) {
+        const quantity = patch.quantity ?? before.quantity;
+        if (patch.location === undefined && recount && quantity > 0 && slotsIn(before.location).length) {
+          throw new Error(
+            `${wineLabel(before)} is kept in ${before.location}. Give 'location' with a slot for each of ` +
+              `its ${quantity} bottles along with the new count.`,
+          );
+        }
+        const placed = this.place(db, id, patch.location !== undefined ? patch.location : before.location, quantity);
+        if (placed !== before.location) patch = { ...patch, location: placed };
+      }
 
       const keys = EDITABLE.filter((k) => patch[k] !== undefined);
       if (keys.includes("name") && !patch.name) throw new Error("A wine's name cannot be cleared.");
@@ -569,7 +733,7 @@ export class Cellar {
   /** Take bottles out: drunk, given away, sold or broken. History is kept. */
   remove(
     id: number,
-    r: { quantity: number; reason: RemovalReason; on_date?: string; rating?: number; note?: string },
+    r: { quantity: number; reason: RemovalReason; on_date?: string; rating?: number; note?: string; slots?: string[] },
   ): WineRow {
     return this.tx((db) => {
       const before = this.wine(db, id);
@@ -580,11 +744,41 @@ export class Cellar {
             `cannot be taken out. If the count was wrong, correct it with systembolaget_cellar_update.`,
         );
       }
+
+      // Free the slots the bottles came from. When a wine is spread over
+      // several slots and the user has not said which, ask rather than guess:
+      // a wrong guess leaves the rack map pointing at an empty slot.
+      const parts = locationParts(before.location);
+      const left = before.quantity - r.quantity;
+      let location: string | null | undefined; // undefined: unchanged
+      if (r.slots?.length) {
+        const out = r.slots.map((s) => s.trim().toUpperCase());
+        const missing = out.filter((s) => !parts.includes(s));
+        if (missing.length) {
+          throw new Error(`${wineLabel(before)} is not in ${missing.join(", ")}; it is in ${before.location ?? "no recorded place"}.`);
+        }
+        if (out.length !== r.quantity) {
+          throw new Error(`Taking out ${r.quantity} bottle(s) but naming ${out.length} slot(s): one slot per bottle.`);
+        }
+        const remaining = [...parts];
+        for (const s of out) remaining.splice(remaining.indexOf(s), 1);
+        location = remaining.length ? remaining.join(", ") : null;
+      } else if (slotsIn(before.location).length) {
+        if (left === 0) location = null;
+        else if (this.rack && parts.length > 1) {
+          throw new Error(
+            `${wineLabel(before)} is in ${before.location}. Say which slot the bottle came from, ` +
+              `e.g. slots: ['${parts[0]}'].`,
+          );
+        }
+      }
+
       db.prepare(`UPDATE wine SET quantity = quantity - ?, updated_at = ? WHERE id = ?`).run(
         r.quantity,
         new Date().toISOString(),
         id,
       );
+      if (location !== undefined) db.prepare(`UPDATE wine SET location = ? WHERE id = ?`).run(location, id);
       this.event(db, {
         wine_id: id,
         kind: "removed",

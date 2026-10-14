@@ -5,7 +5,7 @@ import { chmodSync, mkdtempSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Mirror } from "./db.js";
-import { Cellar, thisYear, today } from "./cellar.js";
+import { Cellar, parseRack, thisYear, today } from "./cellar.js";
 
 interface Fixture {
   product_id: string;
@@ -377,4 +377,88 @@ test("prices keep the currency they were paid in, and totals are never mixed", (
 
   const relabelled = cellar.update(w.id, { purchase_currency: null });
   assert.equal(relabelled.purchase_currency, null, "null clears it back to kronor");
+});
+
+test("a rack spec is parsed, and a malformed one is refused", () => {
+  const rack = parseRack("a-l:1-14")!;
+  assert.equal(rack.spec, "A-L:1-14");
+  assert.equal(rack.columns.length, 12);
+  assert.equal(rack.rows.length, 14);
+  assert.equal(parseRack(""), null);
+  assert.throws(() => parseRack("A-L"), /columns:rows/);
+  assert.throws(() => parseRack("L-A:1-14"), /columns:rows/);
+});
+
+test("with a rack, slots must be inside it, one per bottle, and not shared", () => {
+  const rack = new Cellar(join(dir, "rack", "cellar.db"), mirror, parseRack("A-L:1-14"));
+  try {
+    const pertois = rack.add({ name: "Cuvée Prestige", quantity: 2, location: "b3, C3" }).wine;
+    assert.equal(pertois.location, "B3, C3", "slots are stored upper-cased");
+
+    assert.throws(() => rack.add({ name: "Too far right", quantity: 1, location: "M3" }), /M3 is outside the rack \(columns A–L, rows 1–14\)/);
+    assert.throws(() => rack.add({ name: "Too low", quantity: 1, location: "A15" }), /outside the rack/);
+    assert.throws(() => rack.add({ name: "Squatter", quantity: 1, location: "B3" }), /B3 holds #1 Cuvée Prestige NV/);
+    assert.throws(() => rack.add({ name: "Short", quantity: 2, location: "D4" }), /2 bottle\(s\) need 2 place\(s\)/);
+    assert.throws(() => rack.add({ name: "Twice", quantity: 2, location: "D4, d4" }), /D4 is listed twice/);
+
+    const fridge = rack.add({ name: "Kept cold", quantity: 3, location: "fridge" }).wine;
+    assert.equal(fridge.location, "fridge", "free text is accepted as written");
+
+    // Moving into another wine's slot is refused; moving to free ones frees the old.
+    assert.throws(() => rack.update(fridge.id, { location: "C3, D4, E4" }), /C3 holds #1/);
+    rack.update(pertois.id, { location: "E6, F6" });
+    const squatter = rack.add({ name: "Now welcome", quantity: 1, location: "B3" }).wine;
+    assert.equal(squatter.location, "B3");
+
+    // A recount of a racked wine needs the slots to match.
+    assert.throws(() => rack.update(pertois.id, { quantity: 3 }), /Give 'location' with a slot for each of its 3 bottles/);
+    assert.equal(rack.update(pertois.id, { quantity: 3, location: "E6, F6, G6" }).location, "E6, F6, G6");
+  } finally {
+    rack.close();
+  }
+});
+
+test("taking a bottle out frees its slot, and asks which slot when the wine has several", () => {
+  const rack = new Cellar(join(dir, "rack", "cellar.db"), mirror, parseRack("A-L:1-14"));
+  try {
+    const w = rack.add({ name: "Symphonie", vintage: 2019, quantity: 2, location: "B7, C7" }).wine;
+    assert.throws(() => rack.remove(w.id, { quantity: 1, reason: "drunk" }), /is in B7, C7\. Say which slot/);
+    assert.throws(() => rack.remove(w.id, { quantity: 1, reason: "drunk", slots: ["D7"] }), /not in D7/);
+
+    const after = rack.remove(w.id, { quantity: 1, reason: "drunk", slots: ["b7"], rating: 4 });
+    assert.equal(after.quantity, 1);
+    assert.equal(after.location, "C7");
+    assert.ok(rack.rackMap()!.free.includes("B7"), "B7 is free again");
+
+    // The last bottle needs no slot named, and leaves no place behind.
+    const gone = rack.remove(w.id, { quantity: 1, reason: "drunk" });
+    assert.equal(gone.quantity, 0);
+    assert.equal(gone.location, null);
+    assert.ok(rack.rackMap()!.free.includes("C7"));
+  } finally {
+    rack.close();
+  }
+});
+
+test("the rack map shows who is where, what is free, and what lives elsewhere", () => {
+  const rack = new Cellar(join(dir, "rack", "cellar.db"), mirror, parseRack("A-B:1-2"));
+  try {
+    rack.add({ name: "Left", quantity: 2, location: "A1, A2" });
+    rack.add({ name: "Cold", quantity: 1, location: "fridge" });
+    const map = rack.rackMap()!;
+    assert.deepEqual(map.free, ["B1", "B2"]);
+    assert.deepEqual(map.slots.map((s) => [s.slot, s.wine_id]), [["A1", 1], ["B1", null], ["A2", 1], ["B2", null]]);
+    assert.deepEqual(map.wines, [{ wine_id: 1, label: "#1 Left NV", slots: ["A1", "A2"] }]);
+    assert.deepEqual(map.elsewhere, [{ wine_id: 2, label: "#2 Cold NV", quantity: 1, location: "fridge" }]);
+  } finally {
+    rack.close();
+  }
+});
+
+test("without a rack, locations are free text and nothing is checked", () => {
+  const a = cellar.add({ name: "One", quantity: 1, location: "B3" }).wine;
+  const b = cellar.add({ name: "Two", quantity: 2, location: "B3" }).wine;
+  assert.equal(a.location, "B3");
+  assert.equal(b.location, "B3");
+  assert.equal(cellar.rackMap(), null);
 });
