@@ -24,7 +24,7 @@ npm test    # node's built-in runner; covers the cellar
 | `MCP_AUTH_TOKEN` | *unset* | Bearer token. **Unset means no auth at all.** |
 | `SYSTEMBOLAGET_API_KEY` | *unset* | Override for the live stock check's key. **Leave it unset**: the server reads the key from systembolaget.se's own frontend, as the sync does, and finds the new one when it changes |
 | `CELLAR_DB_PATH` | *unset* | Your wine cellar, a writable SQLite file. **Unset means no cellar tools**, and the server stays read-only |
-| `CELLAR_RACK` | *unset* | The rack as columns:rows, e.g. `A-L:1-14`. Set, slot locations are checked; unset, locations are free text |
+| `CELLAR_RACK` | *unset* | The racks: one columns:rows block each, side by side, then any positions with no slot, e.g. `A-D:1-13 E-H:1-13 I-L:1-14 -D12 -D13`. Set, slot locations are checked; unset, locations are free text |
 | `ALLOWED_ORIGINS` | *unset* | Comma-separated origins to allow. **Unset means no origin checking**, which is correct behind a tunnel; set it only for a loopback-bound server a browser could reach |
 
 `GET /health` reports the product count, the resolved database path and, when
@@ -177,14 +177,18 @@ which is what every price written before it was. The cellar's total is reported
 per currency and never converted.
 
 **With a rack configured, a slot holds one bottle.** `CELLAR_RACK=A-L:1-14`
-makes `B3, C3` mean two slots rather than text. A wine's slots must be inside
-the rack, one for each bottle, and held by no other wine; a clash names the wine
+makes `B3, C3` mean two slots rather than text. Several racks side by side are
+one block each, and a position inside a block that holds no slot (beside a
+row of magnums, say) is listed with a leading minus:
+`A-D:1-13 E-H:1-13 I-L:1-14 -D12 -D13 -H12 -H13`. Columns run on from rack to
+rack, so a slot name is unique; each rack keeps its own rows. A wine's slots
+must exist, one for each bottle, and be held by no other wine; a clash names the wine
 already there and suggests free slots. Free text such as `fridge` is still
 accepted as written. Taking a bottle out frees its slot. When a wine spans
 several slots and the caller does not say which bottle went, the server refuses
 and lists the slots rather than guessing. A wrong guess would leave the rack map
 showing a bottle in a slot that is in fact empty. `cellar_list` with `rack: true`
-draws the grid.
+draws one grid per rack, with `—` where a rack has no slot.
 
 **A cellar wine has three voices, stored apart.** Systembolaget's note, copied
 for that vintage; the user's own notes and ratings; and, for wines nobody else

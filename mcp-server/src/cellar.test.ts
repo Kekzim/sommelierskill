@@ -382,11 +382,47 @@ test("prices keep the currency they were paid in, and totals are never mixed", (
 test("a rack spec is parsed, and a malformed one is refused", () => {
   const rack = parseRack("a-l:1-14")!;
   assert.equal(rack.spec, "A-L:1-14");
-  assert.equal(rack.columns.length, 12);
-  assert.equal(rack.rows.length, 14);
+  assert.equal(rack.racks.length, 1);
+  assert.equal(rack.racks[0].columns.length, 12);
+  assert.equal(rack.racks[0].rows.length, 14);
+  assert.equal(rack.slots.length, 168);
   assert.equal(parseRack(""), null);
   assert.throws(() => parseRack("A-L"), /columns:rows/);
-  assert.throws(() => parseRack("L-A:1-14"), /columns:rows/);
+  assert.throws(() => parseRack("L-A:1-14"), /runs backwards/);
+  assert.throws(() => parseRack("A-D:1-13 D-H:1-13"), /column D is in both/);
+  assert.throws(() => parseRack("A-D:1-13 -E2"), /-E2 is not inside any rack/);
+  assert.throws(() => parseRack("A-D:1-13 -D14"), /-D14 is not inside any rack/);
+});
+
+test("several racks side by side, with positions that hold no slot", () => {
+  // Three racks; the first two end in two rows of magnums, three across.
+  const rack = parseRack("A-D:1-13, E-H:1-13, I-L:1-14, -D12 -d13 -H12 -H13")!;
+  assert.equal(rack.spec, "A-D:1-13 E-H:1-13 I-L:1-14 -D12 -D13 -H12 -H13");
+  assert.deepEqual(rack.racks.map((r) => [r.rack, r.missing]), [
+    ["A-D:1-13", ["D12", "D13"]],
+    ["E-H:1-13", ["H12", "H13"]],
+    ["I-L:1-14", []],
+  ]);
+  assert.equal(rack.slots.length, 52 - 2 + 52 - 2 + 56);
+  assert.deepEqual(rack.slots.slice(44, 50), ["A12", "B12", "C12", "A13", "B13", "C13"], "D12 and D13 are skipped");
+
+  const c = new Cellar(join(dir, "racks", "cellar.db"), mirror, rack);
+  try {
+    c.add({ name: "Magnum", volume_ml: 1500, quantity: 1, location: "C12" });
+    assert.throws(() => c.add({ name: "Beside it", quantity: 1, location: "D12" }), /D12 is not a slot in the rack \(columns A–D, rows 1–13 \(no D12, D13\); columns E–H/);
+    assert.throws(() => c.add({ name: "Too low", quantity: 1, location: "A14" }), /A14 is not a slot/);
+    assert.equal(c.add({ name: "Bottom of the third", quantity: 1, location: "L14" }).wine.location, "L14");
+
+    const map = c.rackMap()!;
+    assert.deepEqual(map.racks.map((r) => [r.columns.join(""), r.rows.length, r.slots.length]), [["ABCD", 13, 50], ["EFGH", 13, 50], ["IJKL", 14, 56]]);
+    assert.deepEqual(map.racks[0].slots.find((s) => s.slot === "C12"), { slot: "C12", wine_id: 1 });
+    assert.ok(!map.racks[0].slots.some((s) => s.slot === "D12"), "a missing position is not a slot");
+    assert.ok(!map.free.includes("D13"));
+    assert.match(map.orientation, /3 racks, side by side in this order: A–D, E–H, I–L/);
+    assert.match(map.orientation, /missing has no slot/);
+  } finally {
+    c.close();
+  }
 });
 
 test("with a rack, slots must be inside it, one per bottle, and not shared", () => {
@@ -395,8 +431,8 @@ test("with a rack, slots must be inside it, one per bottle, and not shared", () 
     const pertois = rack.add({ name: "Cuvée Prestige", quantity: 2, location: "b3, C3" }).wine;
     assert.equal(pertois.location, "B3, C3", "slots are stored upper-cased");
 
-    assert.throws(() => rack.add({ name: "Too far right", quantity: 1, location: "M3" }), /M3 is outside the rack \(columns A–L, rows 1–14\)/);
-    assert.throws(() => rack.add({ name: "Too low", quantity: 1, location: "A15" }), /outside the rack/);
+    assert.throws(() => rack.add({ name: "Too far right", quantity: 1, location: "M3" }), /M3 is not a slot in the rack \(columns A–L, rows 1–14\)/);
+    assert.throws(() => rack.add({ name: "Too low", quantity: 1, location: "A15" }), /not a slot in the rack/);
     assert.throws(() => rack.add({ name: "Squatter", quantity: 1, location: "B3" }), /B3 holds #1 Cuvée Prestige NV/);
     assert.throws(() => rack.add({ name: "Short", quantity: 2, location: "D4" }), /2 bottle\(s\) need 2 place\(s\)/);
     assert.throws(() => rack.add({ name: "Twice", quantity: 2, location: "D4, d4" }), /D4 is listed twice/);
@@ -447,12 +483,13 @@ test("the rack map shows who is where, what is free, and what lives elsewhere", 
     rack.add({ name: "Cold", quantity: 1, location: "fridge" });
     const map = rack.rackMap()!;
     assert.deepEqual(map.free, ["B1", "B2"]);
-    assert.deepEqual(map.slots.map((s) => [s.slot, s.wine_id]), [["A1", 1], ["B1", null], ["A2", 1], ["B2", null]]);
+    assert.deepEqual(map.racks[0].slots.map((s) => [s.slot, s.wine_id]), [["A1", 1], ["B1", null], ["A2", 1], ["B2", null]]);
     assert.deepEqual(map.wines.map((w) => [w.wine_id, w.label, w.slots, w.name]), [[1, "#1 Left NV", ["A1", "A2"], "Left"]]);
     // A reader drawing the grid must not have to guess which way round it goes.
-    assert.deepEqual(map.columns, ["A", "B"]);
-    assert.deepEqual(map.rows, [1, 2]);
+    assert.deepEqual(map.racks[0].columns, ["A", "B"]);
+    assert.deepEqual(map.racks[0].rows, [1, 2]);
     assert.match(map.orientation, /Letters are columns.*numbers are rows/);
+    assert.doesNotMatch(map.orientation, /racks|missing/, "one plain rack needs no more explanation");
     assert.deepEqual(map.elsewhere, [{ wine_id: 2, label: "#2 Cold NV", quantity: 1, location: "fridge" }]);
   } finally {
     rack.close();

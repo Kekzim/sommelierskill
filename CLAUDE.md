@@ -427,7 +427,13 @@ Known open items, so a fresh session does not have to rediscover them:
   with mostly no purchase date, so `purchase_currency` keeps a price as paid
   and totals stay per currency. And a Systembolaget magnum with no tasting
   note was copied in with four taste clocks of 0.
-  The NAS rack is 12 columns by 14 rows (`CELLAR_RACK=A-L:1-14`, v1.4.0).
+  The NAS rack was first set as 12 columns by 14 rows (`CELLAR_RACK=A-L:1-14`,
+  v1.4.0). It is really three racks: A–D and E–H have 13 rows, with magnums
+  three across in rows 12–13 (no D12, D13, H12, H13), and I–L has 14. Since
+  v1.5.0 that is `A-D:1-13 E-H:1-13 I-L:1-14 -D12 -D13 -H12 -H13`; the rack map
+  draws one grid per rack. One session drew the single grid transposed and
+  another would have drawn 14 rows everywhere, which is why the map says how
+  many racks there are and which positions are missing.
   Locations are slot lists, one per bottle. The server enforces in-rack,
   one-per-bottle and no sharing, and `cellar_remove` takes `slots` to free them.
   The 59 bottles already stored were checked before the rule went live: no

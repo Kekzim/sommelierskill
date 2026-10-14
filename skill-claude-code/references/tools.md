@@ -116,8 +116,10 @@ tasting note. Bottles bought elsewhere are added by name.
 a location like `B3, C3` is a list of slots, one per bottle. Letters are
 columns, left to right, and numbers are rows, top to bottom: B3 is column B,
 row 3. "Show me the rack" is one call, `cellar_list` with `rack: true`. Show
-the grid it returns as it is, or draw from its JSON (columns, rows, each wine's
-name, style, size and drinking window). Never rebuild the grid from the wine
+the grids it returns as they are, or draw from its JSON (each rack's columns,
+rows and missing positions, each wine's name, style, size and drinking window).
+Several racks stand side by side with their own rows: one grid each, and a
+missing position stays blank. Never rebuild the grid from the wine
 list, and never transpose it. Before adding or moving bottles, that same call
 shows what is free; suggest a slot rather than inventing one. When a bottle leaves a wine kept in several
 slots, ask which slot it came from and pass it as `slots`: the server refuses a

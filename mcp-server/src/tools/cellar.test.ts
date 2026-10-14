@@ -138,6 +138,7 @@ test("the rack view and slot-freeing work through MCP", async () => {
     assert.match(map, /\| \| A \| B \| C \|/, "columns across the top");
     assert.match(map, /2 of 6 slots taken, 4 free/);
     assert.match(map, /\| \*\*1\*\* \| #1 \| #1 \| · \|/);
+    assert.doesNotMatch(map, /## Rack 1/, "a single rack needs no heading of its own");
 
     const ask = await client.callTool({ name: "systembolaget_cellar_remove", arguments: { wine_id: id } });
     assert.equal(ask.isError, true);
@@ -145,6 +146,31 @@ test("the rack view and slot-freeing work through MCP", async () => {
     const done = await client.callTool({ name: "systembolaget_cellar_remove", arguments: { wine_id: id, slots: ["a1"] } });
     assert.match(text(done), /1 left\. Freed A1\./);
     assert.match(text(done), /\*\*Where\*\*: B1/);
+  } finally {
+    await client.close();
+    cellar.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("several racks are drawn as separate grids, with missing positions marked", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cellar-racks-"));
+  const cellar = new Cellar(join(dir, "cellar.db"), new Mirror(join(dir, "no-mirror.db")), parseRack("A-B:1-2 C-D:1-3 -B2"));
+  const server = new McpServer({ name: "test", version: "0" });
+  registerCellarTools(server, cellar);
+  const client = new Client({ name: "test", version: "0" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(a), client.connect(b)]);
+  const text = (r: Awaited<ReturnType<typeof client.callTool>>) => (r.content as { text: string }[])[0].text;
+  try {
+    await client.callTool({ name: "systembolaget_cellar_add", arguments: { name: "Magnum", volume_ml: 1500, location: "A2" } });
+    const map = text(await client.callTool({ name: "systembolaget_cellar_list", arguments: { rack: true } }));
+    assert.match(map, /1 of 9 slots taken, 8 free/);
+    assert.match(map, /## Rack 1: A–B\n\n\| \| A \| B \|/);
+    assert.match(map, /\| \*\*2\*\* \| #1 \| — \|/, "B2 is not a slot");
+    assert.match(map, /## Rack 2: C–D\n\n\| \| C \| D \|/);
+    assert.match(map, /\| \*\*3\*\* \| · \| · \|/);
+    assert.match(map, /#1 Magnum NV \(150 cl\): A2/);
   } finally {
     await client.close();
     cellar.close();

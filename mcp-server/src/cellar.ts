@@ -289,31 +289,89 @@ export function thisYear(): number {
 }
 
 /**
- * The physical rack: lettered columns by numbered rows, one bottle per slot.
- * Configured as CELLAR_RACK=A-L:1-14. Without one, locations are free text and
- * nothing is checked, which is how the cellar behaved before racks existed.
+ * The physical racks: lettered columns by numbered rows, one bottle per slot.
+ * Configured as CELLAR_RACK, one columns:rows block per rack, side by side in
+ * the order given, then any positions inside a block that hold no slot, each
+ * with a leading minus: 'A-D:1-13 E-H:1-13 I-L:1-14 -D12 -D13 -H12 -H13'.
+ * Without one, locations are free text and nothing is checked, which is how
+ * the cellar behaved before racks existed.
  */
-export interface Rack {
-  spec: string;
+export interface RackSection {
+  /** This rack's block as configured, e.g. 'A-D:1-13'. */
+  rack: string;
   columns: string[];
   rows: number[];
+  /** Positions inside the block that are not slots, e.g. beside a row of magnums. */
+  missing: string[];
 }
 
-export function parseRack(spec: string | undefined): Rack | null {
-  if (!spec?.trim()) return null;
-  const m = spec.trim().toUpperCase().match(/^([A-Z])-([A-Z]):(\d{1,3})-(\d{1,3})$/);
-  const bad = () => new Error(`CELLAR_RACK must be columns:rows such as 'A-L:1-14', got '${spec}'`);
-  if (!m) throw bad();
-  const [c0, c1, r0, r1] = [m[1].charCodeAt(0), m[2].charCodeAt(0), Number(m[3]), Number(m[4])];
-  if (c1 < c0 || r0 < 1 || r1 < r0) throw bad();
-  return {
-    spec: `${m[1]}-${m[2]}:${r0}-${r1}`,
-    columns: Array.from({ length: c1 - c0 + 1 }, (_, i) => String.fromCharCode(c0 + i)),
-    rows: Array.from({ length: r1 - r0 + 1 }, (_, i) => r0 + i),
-  };
+export interface Rack {
+  spec: string;
+  racks: RackSection[];
+  /** Every slot that exists, rack by rack, each row by row. */
+  slots: string[];
 }
 
 const SLOT = /^[A-Z]\d{1,3}$/;
+
+export function parseRack(spec: string | undefined): Rack | null {
+  if (!spec?.trim()) return null;
+  const bad = (why: string) =>
+    new Error(
+      `CELLAR_RACK must be one columns:rows block per rack, then any missing slots with a leading minus, ` +
+        `such as 'A-D:1-13 E-H:1-13 I-L:1-14 -D12 -H12' (${why}), got '${spec}'`,
+    );
+  const racks: RackSection[] = [];
+  const missing: string[] = [];
+  for (const token of spec.trim().toUpperCase().split(/[\s,;]+/)) {
+    const gap = token.match(/^-([A-Z]\d{1,3})$/);
+    if (gap) {
+      missing.push(gap[1]);
+      continue;
+    }
+    const m = token.match(/^([A-Z])-([A-Z]):(\d{1,3})-(\d{1,3})$/);
+    if (!m) throw bad(`'${token}' is neither`);
+    const [c0, c1, r0, r1] = [m[1].charCodeAt(0), m[2].charCodeAt(0), Number(m[3]), Number(m[4])];
+    if (c1 < c0 || r0 < 1 || r1 < r0) throw bad(`'${token}' runs backwards`);
+    racks.push({
+      rack: `${m[1]}-${m[2]}:${r0}-${r1}`,
+      columns: Array.from({ length: c1 - c0 + 1 }, (_, i) => String.fromCharCode(c0 + i)),
+      rows: Array.from({ length: r1 - r0 + 1 }, (_, i) => r0 + i),
+      missing: [],
+    });
+  }
+  if (!racks.length) throw bad("no rack");
+
+  const owner = new Map<string, RackSection>();
+  for (const r of racks) {
+    for (const c of r.columns) {
+      const shared = owner.get(c);
+      if (shared) throw bad(`column ${c} is in both ${shared.rack} and ${r.rack}`);
+      owner.set(c, r);
+    }
+  }
+  for (const s of missing) {
+    const r = owner.get(s[0]);
+    if (!r || !r.rows.includes(Number(s.slice(1)))) throw bad(`-${s} is not inside any rack`);
+    if (!r.missing.includes(s)) r.missing.push(s);
+  }
+  return {
+    spec: [...racks.map((r) => r.rack), ...racks.flatMap((r) => r.missing.map((s) => `-${s}`))].join(" "),
+    racks,
+    slots: racks.flatMap((r) => r.rows.flatMap((row) => r.columns.map((c) => `${c}${row}`)).filter((s) => !r.missing.includes(s))),
+  };
+}
+
+/** "columns A–D, rows 1–13 (no D12, D13); columns E–H, ..." */
+export function rackText(rack: Rack): string {
+  return rack.racks
+    .map((r) => {
+      const gaps = r.missing.length ? ` (no ${r.missing.join(", ")})` : "";
+      return `columns ${r.columns[0]}–${r.columns.at(-1)}, rows ${r.rows[0]}–${r.rows.at(-1)}${gaps}`;
+    })
+    .join("; ");
+}
+
 
 /** "B3, c4 , fridge" -> ["B3", "C4", "fridge"]: slots upper-cased, free text kept as written. */
 function locationParts(location: string | null | undefined): string[] {
@@ -339,14 +397,25 @@ function wineLabel(w: { id: number; producer: string | null; name: string; vinta
 export const RACK_ORIENTATION =
   "Letters are columns, left to right; numbers are rows, top to bottom. B3 is column B, row 3.";
 
+function orientation(rack: Rack): string {
+  const parts = [RACK_ORIENTATION];
+  if (rack.racks.length > 1) {
+    const names = rack.racks.map((r) => `${r.columns[0]}–${r.columns.at(-1)}`);
+    parts.push(`There are ${rack.racks.length} racks, side by side in this order: ${names.join(", ")}. Each has its own rows, so draw each as its own grid.`);
+  }
+  if (rack.racks.some((r) => r.missing.length)) parts.push("A position listed as missing has no slot: leave it blank, never fill it.");
+  return parts.join(" ");
+}
+
 export interface RackMap {
   rack: string;
   orientation: string;
-  /** Column letters left to right, and row numbers top to bottom. */
-  columns: string[];
-  rows: number[];
-  /** Every slot in reading order, row by row: the wine in it, or null when it is free. */
-  slots: { slot: string; wine_id: number | null }[];
+  /**
+   * Each rack, left to right: its column letters left to right, row numbers
+   * top to bottom, the positions that are not slots, and every slot row by row
+   * with the wine in it, or null when it is free.
+   */
+  racks: (RackSection & { slots: { slot: string; wine_id: number | null }[] })[];
   /** Enough to draw and filter the rack from this one answer, without listing the cellar. */
   wines: {
     wine_id: number;
@@ -375,7 +444,7 @@ export class Cellar {
   ) {}
 
   private inRack(slot: string): boolean {
-    return !!this.rack && this.rack.columns.includes(slot[0]) && this.rack.rows.includes(Number(slot.slice(1)));
+    return !!this.rack && this.rack.slots.includes(slot);
   }
 
   /** Which wine holds each slot, among wines that still have bottles. */
@@ -403,7 +472,7 @@ export class Cellar {
 
     const outside = slots.filter((s) => !this.inRack(s));
     if (outside.length) {
-      throw new Error(`${outside.join(", ")} is outside the rack (${this.rackText()}).`);
+      throw new Error(`${outside.join(", ")} is not a slot in the rack (${rackText(this.rack)}).`);
     }
     const twice = slots.filter((s, i) => slots.indexOf(s) !== i);
     if (twice.length) throw new Error(`${twice.join(", ")} is listed twice: one bottle per slot.`);
@@ -423,15 +492,9 @@ export class Cellar {
     return parts.join(", ");
   }
 
-  private rackText(): string {
-    const r = this.rack!;
-    return `columns ${r.columns[0]}–${r.columns.at(-1)}, rows ${r.rows[0]}–${r.rows.at(-1)}`;
-  }
-
-  /** Free slots in reading order: row by row, then column. */
+  /** Free slots in reading order: rack by rack, each row by row. */
   private freeSlots(taken: Map<string, WineRow>): string[] {
-    const r = this.rack!;
-    return r.rows.flatMap((row) => r.columns.map((c) => `${c}${row}`)).filter((s) => !taken.has(s));
+    return this.rack!.slots.filter((s) => !taken.has(s));
   }
 
   /** The rack as it stands: who is where, what is free, and what lives elsewhere. */
@@ -445,12 +508,13 @@ export class Cellar {
       .all() as unknown as WineRow[];
     return {
       rack: r.spec,
-      orientation: RACK_ORIENTATION,
-      columns: r.columns,
-      rows: r.rows,
-      slots: r.rows.flatMap((row) =>
-        r.columns.map((c) => ({ slot: `${c}${row}`, wine_id: taken.get(`${c}${row}`)?.id ?? null })),
-      ),
+      orientation: orientation(r),
+      racks: r.racks.map((section) => ({
+        ...section,
+        slots: r.slots
+          .filter((s) => section.columns.includes(s[0]))
+          .map((s) => ({ slot: s, wine_id: taken.get(s)?.id ?? null })),
+      })),
       wines: bottled
         .filter((w) => slotsIn(w.location).length)
         .map((w) => ({

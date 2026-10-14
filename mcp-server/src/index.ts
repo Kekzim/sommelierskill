@@ -29,7 +29,8 @@ const stockKey = new StockKey(process.env.SYSTEMBOLAGET_API_KEY || undefined);
 // Optional. Unset means no cellar tools at all -- the server stays read-only.
 const cellarPath = process.env.CELLAR_DB_PATH || undefined;
 
-// Optional: the rack as columns:rows, e.g. A-L:1-14. Set, slot locations are
+// Optional: the racks, one columns:rows block each, side by side, then any
+// positions with no slot: 'A-D:1-13 E-H:1-13 I-L:1-14 -D12 -D13'. Set, slot locations are
 // checked; unset, locations stay free text. A malformed value stops the server
 // here rather than silently disabling the check.
 const rack = parseRack(process.env.CELLAR_RACK);

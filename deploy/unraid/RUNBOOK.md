@@ -222,7 +222,11 @@ chown 10001:10001 /mnt/user/appdata/sommelier-cellar
 Set `CELLAR_DIR=/mnt/user/appdata/sommelier-cellar` in `.env`. If the bottles
 live in a lettered and numbered rack, add its size as `CELLAR_RACK=A-L:1-14`
 (columns:rows): locations such as `B3, C3` are then checked, so a slot cannot
-be outside the rack, missing for a bottle, or shared by two wines. Then:
+be outside the rack, missing for a bottle, or shared by two wines. Several
+racks side by side take one block each, and positions with no slot follow
+with a leading minus: `CELLAR_RACK=A-D:1-13 E-H:1-13 I-L:1-14 -D12 -D13 -H12 -H13`.
+Before narrowing a rack, move any bottle out of a slot that is going away:
+the server checks slots when they are written, not ones already stored. Then:
 
 ```bash
 ./run.sh mcp

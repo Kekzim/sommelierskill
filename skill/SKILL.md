@@ -80,8 +80,11 @@ bottle is, call `systembolaget_cellar_list` with `rack: true`. One call returns
 the whole grid, so never rebuild it from the wine list. Show the grid as it
 comes back. Letters are columns, left to right, and numbers are rows, top to
 bottom: B3 is column B, row 3. Never draw it the other way round. For a visual,
-ask that same call for `response_format: "json"`, which carries the columns,
-rows, and each wine's name, style, size and drinking window. When adding or
+ask that same call for `response_format: "json"`, which carries each rack's
+columns, rows and missing positions, and each wine's name, style, size and
+drinking window. When there are several racks, they stand side by side, each
+with its own rows: draw each as its own grid, and leave a missing position
+blank rather than inventing a slot there. When adding or
 moving bottles, choose from its free slots. When a bottle is opened from a wine
 that fills several slots, ask which slot it came from.
 
