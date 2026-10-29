@@ -21,7 +21,13 @@ const READ_ONLY = {
   openWorldHint: false,
 } as const;
 
-const year = z.number().int().min(1800).max(2200);
+/**
+ * A factory, not a shared schema: the JSON Schema converter inlines a reused
+ * instance once and points every later use at it with a $ref. Clients do not
+ * all resolve those, and one that did not sent drink_from as a string, which
+ * the server then refused.
+ */
+const year = () => z.number().int().min(1800).max(2200);
 
 /**
  * A date known only to the year or the month. Purchases bought at a cellar
@@ -36,7 +42,7 @@ const text = (max: number, what: string) =>
 /** Shared by add and update. In update, null clears a field and omitting it keeps it. */
 const wineFields = {
   producer: text(200, "Producer"),
-  vintage: year.nullable().optional().describe("Vintage on the label; null for non-vintage"),
+  vintage: year().nullable().optional().describe("Vintage on the label; null for non-vintage"),
   country: text(100, "Country, as Systembolaget spells it where possible, e.g. 'Frankrike'"),
   region: text(200, "Region or appellation, e.g. 'Bourgogne, Chablis'"),
   category: text(100, "Systembolaget's category name where possible: 'Rött vin', 'Vitt vin', 'Mousserande vin'"),
@@ -68,8 +74,8 @@ const wineFields = {
     "Where the bottles are: rack slots, one per bottle, comma-separated ('B3, C3'), or free text ('fridge'). " +
       "Slots are checked against the rack: inside it and not held by another wine",
   ),
-  drink_from: year.nullable().optional().describe("First year it is ready to drink"),
-  drink_until: year.nullable().optional().describe("Last year it should be drunk by"),
+  drink_from: year().nullable().optional().describe("First year it is ready to drink"),
+  drink_until: year().nullable().optional().describe("Last year it should be drunk by"),
   notes: z.string().trim().max(4000).nullable().optional().describe("The user's own notes about this wine"),
   abv: z.number().min(0).max(80).nullable().optional().describe("Alcohol, % by volume"),
   sugar_g_l: z
@@ -80,7 +86,7 @@ const wineFields = {
     .optional()
     .describe("Residual sugar in g/L -- for Champagne and other sparkling wine, the dosage"),
   style: text(200, "Style words from the label, e.g. 'Blanc de Blancs, Extra Brut, Grand Cru'"),
-  base_vintage: year
+  base_vintage: year()
     .nullable()
     .optional()
     .describe("For a non-vintage wine: the base year, often printed on grower Champagne"),

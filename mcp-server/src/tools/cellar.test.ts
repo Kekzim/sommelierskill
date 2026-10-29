@@ -28,6 +28,8 @@ test("the cellar tools round-trip through MCP", async () => {
       "systembolaget_cellar_remove",
       "systembolaget_cellar_update",
     ]);
+    // A client that does not resolve $ref sends the field untyped, and a year then arrives as a string.
+    for (const t of tools) assert.doesNotMatch(JSON.stringify(t.inputSchema), /\$ref/, t.name);
 
     const text = (r: Awaited<ReturnType<typeof client.callTool>>) =>
       (r.content as { type: string; text: string }[])[0].text;
