@@ -130,7 +130,9 @@ function windowText(w: WineRow): string | null {
 
 /** One review on one line: who, the score as published, which release, and how far to trust the figure. */
 function reviewLine(r: ReviewRow): string {
-  const score = [r.score != null ? `${r.score}/${r.scale ?? 100}` : null, r.award].filter(Boolean).join(", ");
+  // An award that is the score as printed ('17+', '93-95') replaces the bare number rather than repeating it.
+  const printed = r.award && /^\d/.test(r.award) && r.score != null ? `${r.award}/${r.scale ?? 100}` : null;
+  const score = printed ?? [r.score != null ? `${r.score}/${r.scale ?? 100}` : null, r.award].filter(Boolean).join(", ");
   const release =
     r.release === "this_release"
       ? "this release"
@@ -579,7 +581,7 @@ Look the wine up first -- the critic's own publication, then guides that cover s
 Three rules:
   - Never store the critic's text. 'summary' is one or two sentences in your own words; the link carries the rest. Reviews are copyrighted and often behind a paywall.
   - Say which release was tasted. For a vintage wine the same year is 'this_release'. A non-vintage wine changes with every release: use 'this_release' only when the review names the base year or disgorgement on the user's label, 'other_release' when it names a different one, and 'unknown' when it does not say -- which is most of the time. Put what the review does say in release_note.
-  - Say how you saw it. 'at_source' means you read it on the critic's or guide's own page; 'quoted' means a retailer, the producer or a search summary repeated it. Quoted scores disagree with each other often enough to matter.
+  - Say how you saw it. 'at_source' means you read it on the critic's or guide's own page; 'quoted' means you read it on a retailer's or the producer's page, which goes in url. A search engine's summary is neither: open the page before recording anything. Summaries have attributed scores and drinking windows to critics that no page carried.
 
 Do not change the wine's own drink_from/drink_until from a review without asking the user.
 
@@ -640,7 +642,7 @@ Error Handling:
           seen: z
             .enum(REVIEW_SEEN)
             .optional()
-            .describe("'at_source': read on the critic's own page. 'quoted': repeated by a retailer, the producer or a search summary"),
+            .describe("'at_source': read on the critic's own page. 'quoted': read on a retailer's or the producer's page. Never from a search summary alone"),
         })
         .strict(),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },

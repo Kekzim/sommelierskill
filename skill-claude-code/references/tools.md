@@ -188,9 +188,11 @@ label (a different blend) is a sign of another release: use `other_release`
 and say why in `release_note`.
 
 **`seen` is a fact about you.** `at_source` only when you read the score on the
-critic's or guide's own page. A retailer's listing, the producer's tech sheet
-and a search summary are all `quoted`. Two retailers quoting the same critic
-have been seen to differ by a point, and by four years on a drinking window.
+critic's or guide's own page. A retailer's listing or the producer's tech sheet
+is `quoted`, and two retailers have been seen quoting one review as 93 and as
+93-95. A search engine's summary is neither: open the page it points to and
+record what that page says. Summaries have attributed a score and a drinking
+window to a critic that no page carried.
 
 **Paid tasting services are not criticism.** Some scores come from services the
 producer pays to enter and may decline to publish below a threshold (Andreas

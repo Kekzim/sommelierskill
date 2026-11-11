@@ -209,7 +209,7 @@ because a bare score hides both. `release` says whether the review is of the
 bottle on the rack; for a non-vintage wine that is `unknown` unless the review
 names the base year or disgorgement, which guides rarely do. `seen` says
 whether the score was read on the critic's own page or quoted by a retailer;
-quotes of the same review were found to disagree. The same critic and tasting
+two retailers were found quoting one review as 93 and as 93-95. The same critic and tasting
 date replaces the earlier record, so looking a wine up twice does not list a
 review twice. A wine looked up with nothing found is dated
 (`reviews_checked_on`), so `needs_reviews` only lists wines nobody has looked

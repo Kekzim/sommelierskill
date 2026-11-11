@@ -156,10 +156,12 @@ test("critics' reviews are recorded, shown with their warnings, corrected and re
     const rid = (first.structuredContent as { reviews: { id: number }[] }).reviews[0].id;
 
     await review({ wine_id: id, critic: "Vinous", award: "91-93", release: "other_release", release_note: "base 2019", drink_until: 2030, seen: "quoted" });
+    await review({ wine_id: id, critic: "Jancis Robinson", score: 17, scale: 20, award: "17+", release: "unknown", seen: "quoted" });
 
     const shown = text(await client.callTool({ name: "systembolaget_cellar_list", arguments: { wine_id: id } }));
     assert.match(shown, /\*\*Critics\*\* \(summaries are Claude's words, not the critic's\)/);
     assert.match(shown, /Gault&Millau: 93\/100 \(2022\) — release not stated · https:\/\/example\.com\/hypnotic · review #\d+\n    Generous/);
+    assert.match(shown, /Jancis Robinson: 17\+\/20 — release not stated/);
     assert.match(shown, /Vinous: 91-93 — another release \(base 2019\) · drink now–2030 · quoted second-hand, not checked at the source/);
     assert.doesNotMatch(text(await client.callTool({ name: "systembolaget_cellar_list", arguments: { needs_reviews: true } })), /Hypnotic/);
 

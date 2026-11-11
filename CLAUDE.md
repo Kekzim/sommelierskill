@@ -446,9 +446,12 @@ Known open items, so a fresh session does not have to rediscover them:
   cover small growers (Gault&Millau, Gilbert & Gaillard) do not say which base
   year they tasted, and one Gault&Millau text described a blend the label
   contradicts. So `release` is required and usually `unknown`. The big critics
-  are paywalled and reach us through retailers, whose quotes of the same
-  review differed (a point on one score, 2034 against 2038 on one drinking
-  window), so `seen` is required too. Review text is never stored, only a
+  are paywalled and reach us through retailers, whose quotes of one review
+  differed (Decanter on the same wine as 93 and as 93-95), so `seen` is
+  required too. A search engine's summary is worse than a retailer: the pilot's
+  first figures for one wine came from summaries and gave a critic a score and
+  a drinking window that no page carried, and the user changed a window on the
+  strength of it. `quoted` means the quoting page was opened and read. Review text is never stored, only a
   score, a summary in other words and a link. Scores are never averaged across
   critics: one wine ran from 89 to 96.
 - **Unrated products carry all-zero taste clocks in the mirror, not NULL.**
