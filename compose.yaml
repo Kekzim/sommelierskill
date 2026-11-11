@@ -60,7 +60,7 @@ services:
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?set MCP_AUTH_TOKEN in .env}
       # Optional: only live shelf-stock checks need it.
       SYSTEMBOLAGET_API_KEY: ${SYSTEMBOLAGET_API_KEY:-}
-      # Optional: the user's cellar, and the four tools that manage it. Empty
+      # Optional: the user's cellar, and the five tools that manage it. Empty
       # disables them.
       CELLAR_DB_PATH: ${CELLAR_DB_PATH-/cellar/cellar.db}
       # Optional: the racks, one columns:rows block each, then positions with

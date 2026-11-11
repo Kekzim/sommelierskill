@@ -88,6 +88,17 @@ label (disgorgement, base year, dosage) are the user's to give, because a
 non-vintage cuvée changes with every release. `references/tools.md` has the
 judgement for each cellar tool, and for filling one in.
 
+**What critics say is a fourth voice, with two warnings attached.** A cellar
+wine can carry published reviews, recorded with `systembolaget_cellar_review`.
+Name the critic with every score, and never average critics. Each review says
+whether it is of the bottle on the rack: "release not stated" means it may be
+another year's blend, so say so. It also says whether the score was read on the
+critic's own page or quoted by someone selling the wine; say that too. Store a
+score, a link and a sentence or two in your own words, never the critic's text.
+When you look a wine up and find nothing, record that, so nobody looks again.
+A critic's drinking window is advice: change the wine's own window only when
+the user agrees.
+
 **Check freshness before trusting prices.** `bolagetdb stats` reports the last
 sync. If rows carry two different `synced_at` dates a sync was interrupted and
 the mirror is half-refreshed. Quote prices as of that date.

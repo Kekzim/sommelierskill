@@ -7,7 +7,10 @@ import {
   EventRow,
   ListedWine,
   REMOVAL_REASONS,
+  REVIEW_RELEASES,
+  REVIEW_SEEN,
   RackMap,
+  ReviewRow,
   WineRow,
   thisYear,
 } from "../cellar.js";
@@ -125,6 +128,33 @@ function windowText(w: WineRow): string | null {
   return `${range} (${state})`;
 }
 
+/** One review on one line: who, the score as published, which release, and how far to trust the figure. */
+function reviewLine(r: ReviewRow): string {
+  const score = [r.score != null ? `${r.score}/${r.scale ?? 100}` : null, r.award].filter(Boolean).join(", ");
+  const release =
+    r.release === "this_release"
+      ? "this release"
+      : r.release === "other_release"
+        ? `another release${r.release_note ? ` (${r.release_note})` : ""}`
+        : `release not stated${r.release_note ? ` (${r.release_note})` : ""}`;
+  const window =
+    r.drink_from != null || r.drink_until != null ? `drink ${r.drink_from ?? "now"}–${r.drink_until ?? "open"}` : null;
+  const facts = [
+    release,
+    window,
+    r.seen === "quoted" ? "quoted second-hand, not checked at the source" : null,
+    r.url,
+    `review #${r.id}`,
+  ].filter(Boolean);
+  const head = `${r.critic}${score ? `: ${score}` : ""}${r.tasted_on ? ` (${r.tasted_on})` : ""}`;
+  return `  - ${head} — ${facts.join(" · ")}${r.summary ? `\n    ${r.summary}` : ""}`;
+}
+
+function reviewsMarkdown(reviews: ReviewRow[], checkedOn: string | null): string[] {
+  if (!reviews.length) return checkedOn ? [`- **Critics**: none found (looked ${checkedOn})`] : [];
+  return [`- **Critics** (summaries are Claude's words, not the critic's):`, ...reviews.map(reviewLine)];
+}
+
 function wineMarkdown(w: ListedWine | WineRow, history?: EventRow[]): string {
   const lines: string[] = [];
   const bottles = `${w.quantity} bottle${w.quantity === 1 ? "" : "s"}`;
@@ -154,13 +184,14 @@ function wineMarkdown(w: ListedWine | WineRow, history?: EventRow[]): string {
     const price = w.purchase_price != null ? money(w.purchase_price, w.purchase_currency) : "price not recorded";
     lines.push(`- **Paid**: ${price}${how ? ` (${how})` : ""}`);
   }
-  // Three voices, and they must never blur: Systembolaget's note for this
-  // vintage, Claude's profile with its sources, and the user's own.
+  // Four voices, and they must never blur: Systembolaget's note for this
+  // vintage, Claude's profile with its sources, the critics, and the user's own.
   if (w.sb_taste) lines.push(`- **Systembolaget's note** (recorded when added): ${w.sb_taste}`);
   if (w.claude_profile) {
     lines.push(`- **Claude's profile** (${w.claude_profiled_on ?? "undated"}): ${w.claude_profile}`);
     lines.push(`  - *Sources*: ${w.claude_sources ?? "none recorded"}`);
   }
+  if ("reviews" in w) lines.push(...reviewsMarkdown(w.reviews, w.reviews_checked_on));
   if (w.notes) lines.push(`- **Your notes**: ${w.notes}`);
 
   if ("avg_rating" in w) {
@@ -260,7 +291,9 @@ export function registerCellarTools(server: McpServer, cellar: Cellar): void {
 
 Start here for "what should I open tonight", "what goes with lamb from what I have", and "what needs drinking soon". Check it too before recommending a purchase -- they may already own something that fits, or already have six of what you were about to suggest.
 
-Three kinds of description appear and must not be confused: Systembolaget's note, recorded for that exact vintage when the bottle was added; Claude's profile, written for wines nobody else describes and stored with its sources; and the user's own notes and ratings. Quote the user's as theirs, and present Claude's as Claude's, with its sources.
+Four kinds of description appear and must not be confused: Systembolaget's note, recorded for that exact vintage when the bottle was added; Claude's profile, written for wines nobody else describes and stored with its sources; critics' published reviews; and the user's own notes and ratings. Quote the user's as theirs, and present Claude's as Claude's, with its sources.
+
+A critic's review carries two warnings a bare score hides, so repeat them with the score: 'release not stated' or 'another release' means it may not be the bottle on the rack, and 'quoted second-hand' means the figure came from a retailer or the producer, not the critic's own page. Name the critic with every score, and never average scores from different critics.
 
 Args:
   - wine_id (number): one wine, with its full history of additions, bottles drunk, ratings and notes
@@ -269,17 +302,19 @@ Args:
   - drink_window ('ready' | 'drink_soon' | 'not_yet' | 'unknown'): 'drink_soon' includes anything past its window, most urgent first
   - min_rating (number 1-5): wines the user has rated at least this highly -- "the ones I loved"
   - needs_profile (boolean): wines with neither a Systembolaget note nor a Claude profile -- the queue for filling in
+  - needs_reviews (boolean): wines whose critics' reviews nobody has looked for yet -- the queue for systembolaget_cellar_review
   - include_empty (boolean): include wines with no bottles left, for "what was that wine I had" (default: false)
   - rack (boolean): show the rack instead of the list -- which slot holds which wine, which slots are free, and which wines are kept elsewhere. One call answers "show me the rack": present the grids it returns as they are, or with response_format='json' draw from it (each rack's columns, rows and missing positions, and per-wine producer, name, vintage, size, style, grapes and drink_until are all included). Letters are columns, numbers are rows: B3 is column B, row 3. Several racks stand side by side, each with its own rows: draw each as its own grid, and leave a missing position blank. Use it too to suggest a slot before adding or moving bottles
   - sort ('drink_until' | 'name' | 'vintage' | 'added' | 'rating'), limit, offset, response_format
 
-Returns each wine with bottles, drinking window, location, price paid, both kinds of note, the user's average rating, and what Systembolaget sells under that product now -- flagged when it has moved on to a different vintage.
+Returns each wine with bottles, drinking window, location, price paid, the notes, critics' reviews, the user's average rating, and what Systembolaget sells under that product now -- flagged when it has moved on to a different vintage.
 
 Examples:
   - "What should I open with lamb tonight?" -> drink_window='ready', then match on the taste clocks and notes
   - "Anything I should drink before it's too late?" -> drink_window='drink_soon'
   - "What was that Riesling I liked?" -> search='Riesling', include_empty=true, min_rating=4
   - "Fill in the Champagnes I just added" -> needs_profile=true, then research each and systembolaget_cellar_update
+  - "What do the critics say about my bottles?" -> needs_reviews=true, then look each up and systembolaget_cellar_review
   - "Where's a free slot for these three?" -> rack=true
 
 Error Handling:
@@ -296,6 +331,10 @@ Error Handling:
             .boolean()
             .optional()
             .describe("Only wines nobody has described yet: no Systembolaget note and no Claude profile"),
+          needs_reviews: z
+            .boolean()
+            .optional()
+            .describe("Only wines whose critics' reviews nobody has looked for yet"),
           include_empty: z.boolean().default(false).describe("Include wines with no bottles left (default: false)"),
           rack: z
             .boolean()
@@ -526,6 +565,133 @@ Error Handling:
         const left = wine.quantity === 0 ? "none left" : `${wine.quantity} left`;
         const freed = r.slots?.length ? ` Freed ${r.slots.map((s) => s.toUpperCase()).join(", ")}.` : "";
         return written(cellar, wine, `Took out ${r.quantity} (${r.reason}): ${left}.${freed}`);
+      }),
+  );
+
+  server.registerTool(
+    "systembolaget_cellar_review",
+    {
+      title: "Record what a critic published about a cellar wine",
+      description: `Record a published review of a wine in the cellar: a critic's score, drinking window and verdict. Reviews are kept apart from Systembolaget's note, Claude's profile and the user's own notes.
+
+Look the wine up first -- the critic's own publication, then guides that cover small growers (Gault&Millau, Gilbert & Gaillard, Guide Hachette), then retailers quoting a critic. Record one review per call. If you looked and found nothing, say so with none_found: most grower Champagne has no published review, and the date stops the next session searching again.
+
+Three rules:
+  - Never store the critic's text. 'summary' is one or two sentences in your own words; the link carries the rest. Reviews are copyrighted and often behind a paywall.
+  - Say which release was tasted. For a vintage wine the same year is 'this_release'. A non-vintage wine changes with every release: use 'this_release' only when the review names the base year or disgorgement on the user's label, 'other_release' when it names a different one, and 'unknown' when it does not say -- which is most of the time. Put what the review does say in release_note.
+  - Say how you saw it. 'at_source' means you read it on the critic's or guide's own page; 'quoted' means a retailer, the producer or a search summary repeated it. Quoted scores disagree with each other often enough to matter.
+
+Do not change the wine's own drink_from/drink_until from a review without asking the user.
+
+Args:
+  - wine_id (number): the cellar wine, from systembolaget_cellar_list
+  - critic (string): the publication, with the taster where known: 'Wine Advocate (Kristaps Karklins)', 'Gault&Millau'
+  - score (number), scale (number): the score and the top of its scale -- 100 unless given, 20 for Jancis Robinson or La RVF
+  - award (string): a medal or distinction ('Gold medal', 'Coup de coeur'), or a score that is not one number, as printed: '17.5+', '93-95'
+  - tasted_on (YYYY, YYYY-MM or YYYY-MM-DD): when it was tasted, else published; for a yearly guide, the edition
+  - release ('this_release' | 'other_release' | 'unknown'), release_note (string)
+  - drink_from, drink_until (years): the critic's window
+  - summary (string): your own words, at most two sentences
+  - url (string): where the review, or the quote of it, can be read
+  - seen ('at_source' | 'quoted')
+  - none_found (boolean): with wine_id alone -- reviews were looked for and none found
+  - review_id (number): correct that review instead of adding one; fields left out are kept, null clears
+  - delete (boolean): with review_id -- remove a review recorded by mistake
+
+The same critic and tasted_on for the same wine replaces the earlier record rather than adding a second.
+
+Returns the wine's reviews as they now stand.
+
+Examples:
+  - Read on the guide's page, NV wine: wine_id, critic='Gault&Millau', score=93, tasted_on='2022', release='unknown', seen='at_source', url=...
+  - A retailer quoting a critic on a vintage wine: critic='Vinous (Antonio Galloni)', score=93, tasted_on='2024-03', release='this_release', drink_from=2024, drink_until=2034, seen='quoted', url=<the retailer's page>
+  - A medal: critic='Gilbert & Gaillard', award='Gold medal', tasted_on='2025', release='unknown', seen='at_source'
+  - Nothing published: wine_id, none_found=true
+
+Error Handling:
+  - A new review without critic, release or seen is refused, as is one with no score, award or summary.
+  - A score above its scale is refused: give 'scale'.
+  - An unknown wine_id or review_id returns an error; list the wine to find them.`,
+      inputSchema: z
+        .object({
+          wine_id: z.number().int().min(1).optional().describe("Cellar wine id; required unless review_id is given"),
+          review_id: z.number().int().min(1).optional().describe("An existing review to correct or delete"),
+          delete: z.boolean().optional().describe("With review_id: remove that review"),
+          none_found: z.boolean().optional().describe("With wine_id alone: reviews were looked for and none found"),
+          critic: z.string().trim().min(1).max(200).optional().describe("The publication, with the taster where known"),
+          score: z.number().min(0).max(100).nullable().optional().describe("The score, on the critic's own scale"),
+          scale: z.number().min(1).max(100).nullable().optional().describe("The top of the critic's scale: 100 (default), 20, 5"),
+          award: text(100, "A medal or distinction, or a score that is not one number, as printed: 'Gold medal', '17.5+', '93-95'"),
+          tasted_on: z
+            .string()
+            .regex(PARTIAL_DATE, "Use YYYY, YYYY-MM or YYYY-MM-DD")
+            .nullable()
+            .optional()
+            .describe("When tasted, else published: YYYY, YYYY-MM or YYYY-MM-DD"),
+          release: z
+            .enum(REVIEW_RELEASES)
+            .optional()
+            .describe("Whether the review is of the bottle in the cellar. 'unknown' when the review does not say which release"),
+          release_note: text(200, "What the review says it tasted: 'base 2019, disgorged 2023'"),
+          drink_from: year().nullable().optional().describe("The critic's window: first year"),
+          drink_until: year().nullable().optional().describe("The critic's window: last year"),
+          summary: text(600, "One or two sentences in your own words. Never the critic's text"),
+          url: z.string().trim().url().max(500).nullable().optional().describe("Where the review, or the quote of it, can be read"),
+          seen: z
+            .enum(REVIEW_SEEN)
+            .optional()
+            .describe("'at_source': read on the critic's own page. 'quoted': repeated by a retailer, the producer or a search summary"),
+        })
+        .strict(),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ wine_id, review_id, delete: drop, none_found, ...fields }) =>
+      guard(() => {
+        const given = Object.values(fields).some((v) => v !== undefined);
+        let wineId = wine_id;
+        let headline: string;
+
+        if (review_id !== undefined) {
+          if (drop) {
+            const gone = cellar.removeReview(review_id);
+            wineId = gone.wine_id;
+            headline = `Removed review #${gone.id} (${gone.critic}).`;
+          } else {
+            if (!given) return errorResult("Give the fields to correct, or delete: true to remove the review.");
+            const r = cellar.updateReview(review_id, fields);
+            wineId = r.wine_id;
+            headline = `Corrected review #${r.id} (${r.critic}).`;
+          }
+        } else if (wineId === undefined) {
+          return errorResult("Give wine_id to record a review, or review_id to correct one.");
+        } else if (none_found) {
+          if (given) return errorResult("none_found records that nothing was found; do not send a review with it.");
+          cellar.markReviewsChecked(wineId);
+          headline = `Recorded that no reviews were found for #${wineId}.`;
+        } else {
+          const { critic, release, seen } = fields;
+          if (!critic || !release || !seen) {
+            return errorResult(
+              "A new review needs critic, release and seen. release says whether it is of the bottle in the cellar " +
+                "('unknown' when the review does not say); seen says whether you read it at the source or quoted.",
+            );
+          }
+          const { review, replaced } = cellar.addReview(wineId, { ...fields, critic, release, seen });
+          headline = replaced
+            ? `Replaced review #${review.id} (${review.critic}): same critic and date as one already recorded.`
+            : `Recorded review #${review.id} (${review.critic}) for #${wineId}.`;
+        }
+
+        const { items } = cellar.list({ wine_id: wineId, limit: 1, offset: 0 });
+        const w = items[0];
+        const title = `${w.producer ? `${w.producer} ` : ""}${w.name}${w.vintage ? ` ${w.vintage}` : ""} · #${w.id}`;
+        const body = reviewsMarkdown(w.reviews, w.reviews_checked_on);
+        return {
+          content: [
+            { type: "text" as const, text: [headline, "", `## ${title}`, ...(body.length ? body : ["- **Critics**: none recorded"])].join("\n") },
+          ],
+          structuredContent: { wine_id: w.id, reviews: w.reviews, reviews_checked_on: w.reviews_checked_on },
+        };
       }),
   );
 }

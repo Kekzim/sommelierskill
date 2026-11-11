@@ -207,7 +207,7 @@ Safe at any time: a failure publishes nothing and leaves the live mirror alone.
 ## The cellar (optional)
 
 The server can also keep your own wine cellar: what you have, where it is, when
-to drink it, and how you rated what you opened. It adds four tools and is off
+to drink it, and how you rated what you opened. It adds five tools and is off
 unless `CELLAR_DIR` is set.
 
 It gets its own directory rather than living beside the mirror. The mirror is

@@ -285,6 +285,102 @@ test("a Champagne nobody describes is queued, filled in with sources, and dated"
   assert.deepEqual(queue(), ["Brut Tradition"]);
 });
 
+test("critics' reviews are a fourth voice: kept per wine, with release and provenance", () => {
+  const vintage = cellar.add({ producer: "Pol Roger", name: "Brut Vintage", vintage: 2018, quantity: 1 }).wine;
+  const grower = cellar.add({ producer: "Xavier Loriot", name: "Hypnotic Brut", vintage: null, quantity: 3 }).wine;
+  const unknown = cellar.add({ producer: "Jonot-Marchwicki", name: "Brut", vintage: null, quantity: 1 }).wine;
+
+  const queue = () => cellar.list({ needs_reviews: true, limit: 10, offset: 0 }).items.map((w) => w.name);
+  assert.deepEqual(queue().sort(), ["Brut", "Brut Vintage", "Hypnotic Brut"]);
+
+  const { review, replaced } = cellar.addReview(vintage.id, {
+    critic: "Wine Advocate (Kristaps Karklins)",
+    score: 94,
+    tasted_on: "2024-12",
+    release: "this_release",
+    drink_until: 2035,
+    seen: "quoted",
+    url: "https://example.com/retailer",
+  });
+  assert.equal(replaced, false);
+  assert.equal(review.scale, 100, "a score with no scale is out of 100");
+  assert.equal(review.recorded_on, today());
+
+  // A score on another scale, and one that is not a single number.
+  assert.throws(() => cellar.addReview(vintage.id, { critic: "X", score: 150, scale: 100, release: "unknown", seen: "quoted" }), /does not fit/);
+  assert.equal(
+    cellar.addReview(vintage.id, { critic: "Jancis Robinson", score: 17.5, scale: 20, release: "this_release", seen: "at_source" }).review.scale,
+    20,
+  );
+  const medal = cellar.addReview(grower.id, { critic: "Gilbert & Gaillard", award: "Gold medal", tasted_on: "2018", release: "unknown", seen: "at_source" }).review;
+  assert.equal(medal.score, null);
+  assert.equal(medal.scale, null);
+
+  // A review has to say something.
+  assert.throws(() => cellar.addReview(grower.id, { critic: "Nobody", release: "unknown", seen: "quoted" }), /needs a score, an award or a summary/);
+  assert.throws(
+    () => cellar.addReview(grower.id, { critic: "X", score: 90, drink_from: 2030, drink_until: 2026, release: "unknown", seen: "quoted" }),
+    /is after/,
+  );
+  assert.throws(() => cellar.addReview(999, { critic: "X", score: 90, release: "unknown", seen: "quoted" }), /No wine #999/);
+
+  // The same critic and date again replaces, so a second lookup does not double the list.
+  const again = cellar.addReview(vintage.id, {
+    critic: "wine advocate (Kristaps Karklins)",
+    score: 95,
+    tasted_on: "2024-12",
+    release: "this_release",
+    seen: "at_source",
+  });
+  assert.equal(again.replaced, true);
+  assert.equal(again.review.id, review.id);
+  assert.equal(again.review.drink_until, null, "a replacement is the whole review, not a merge");
+
+  const listed = cellar.list({ wine_id: vintage.id, limit: 1, offset: 0 }).items[0];
+  assert.deepEqual(listed.reviews.map((r) => [r.critic, r.score]), [
+    ["wine advocate (Kristaps Karklins)", 95],
+    ["Jancis Robinson", 17.5],
+  ], "dated reviews first, newest tasting first");
+
+  // Looked for and not found: dated, and out of the queue.
+  assert.equal(cellar.markReviewsChecked(unknown.id).reviews_checked_on, today());
+  assert.deepEqual(queue(), []);
+  assert.deepEqual(cellar.list({ wine_id: unknown.id, limit: 1, offset: 0 }).items[0].reviews, []);
+
+  // Corrections: omitted keeps, null clears, and the score keeps a scale.
+  const fixed = cellar.updateReview(review.id, { score: 94, release_note: "disgorged March 2024", url: null });
+  assert.equal(fixed.score, 94);
+  assert.equal(fixed.seen, "at_source");
+  assert.equal(fixed.release_note, "disgorged March 2024");
+  assert.equal(fixed.url, null);
+  assert.throws(() => cellar.updateReview(review.id, { score: null }), /needs a score, an award or a summary/);
+  assert.throws(() => cellar.updateReview(review.id, { critic: "" }), /cannot be cleared/);
+  assert.equal(cellar.updateReview(medal.id, { score: 16, scale: 20 }).scale, 20);
+  assert.equal(cellar.updateReview(medal.id, { score: null }).scale, null);
+  assert.throws(() => cellar.updateReview(999, { score: 90 }), /No review #999/);
+
+  assert.equal(cellar.removeReview(medal.id).critic, "Gilbert & Gaillard");
+  assert.throws(() => cellar.removeReview(medal.id), /No review/);
+  assert.deepEqual(cellar.reviews([grower.id]).get(grower.id), undefined);
+  assert.deepEqual(queue(), [], "a wine that was looked up stays out of the queue when its review is removed");
+});
+
+test("a cellar from before reviews gains them on opening, and keeps its wines", () => {
+  const path = join(dir, "v3.db");
+  const first = new Cellar(path, mirror);
+  const { wine } = first.add({ name: "Old friend", quantity: 2 });
+  first.close();
+  const raw = new DatabaseSync(path);
+  raw.exec(`DROP TABLE review; ALTER TABLE wine DROP COLUMN reviews_checked_on;`);
+  raw.close();
+
+  const upgraded = new Cellar(path, mirror);
+  assert.equal(upgraded.list({ wine_id: wine.id, limit: 1, offset: 0 }).items[0].reviews_checked_on, null);
+  upgraded.addReview(wine.id, { critic: "Guide", score: 90, release: "unknown", seen: "at_source" });
+  assert.equal(upgraded.summary().bottles, 2);
+  upgraded.close();
+});
+
 test("a cellar written by the first release gains the new columns and keeps its wines", () => {
   const path = join(dir, "v1.db");
   const old = new DatabaseSync(path);

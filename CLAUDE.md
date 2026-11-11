@@ -439,6 +439,18 @@ Known open items, so a fresh session does not have to rediscover them:
   The 59 bottles already stored were checked before the rule went live: no
   clashes. `run.sh` passes `CELLAR_RACK` only from v1.4.0, so the NAS copy of
   `run.sh` has to be replaced (the old-run.sh trap above).
+- **Critics' reviews are stored per wine since v1.6.0** (`review` table,
+  `systembolaget_cellar_review`). A pilot on ten bottles on 2026-11-11 set the
+  shape. Nine had a published score, but only the three vintage or
+  edition-specific wines could be matched to the user's release: guides that
+  cover small growers (Gault&Millau, Gilbert & Gaillard) do not say which base
+  year they tasted, and one Gault&Millau text described a blend the label
+  contradicts. So `release` is required and usually `unknown`. The big critics
+  are paywalled and reach us through retailers, whose quotes of the same
+  review differed (a point on one score, 2034 against 2038 on one drinking
+  window), so `seen` is required too. Review text is never stored, only a
+  score, a summary in other words and a link. Scores are never averaged across
+  critics: one wine ran from 89 to 96.
 - **Unrated products carry all-zero taste clocks in the mirror, not NULL.**
   Every one of 11,543 wines without a tasting note has body, tannin, sweetness
   and fruit acid all 0. A real rating has body ≥ 1, while sweetness 0 is real
@@ -527,7 +539,7 @@ three.
 
 `mcp-server/` — **the MCP server**. Nine tools over the full mirror plus a live
 stock check, TypeScript, streamable HTTP, containerised alongside the Go sync
-job. With `CELLAR_DB_PATH` set it also keeps the user's wine cellar: four more
+job. With `CELLAR_DB_PATH` set it also keeps the user's wine cellar: five more
 tools over a separate, writable SQLite file, which is the only thing the server
 writes and the only data in this whole setup that cannot be rebuilt. The root `compose.yaml` only *builds* those two images; the NAS runs them
 with `deploy/unraid/run.sh`. This is the data-access surface: it is what the Claude

@@ -218,7 +218,7 @@ tools: product and tasting-note search, similarity, upcoming releases, store
 lookup, live stock, freshness, and an escape hatch that runs read-only SQL for
 the questions the purpose-built tools do not cover.
 
-Optionally it also keeps your own cellar: four more tools that record what you
+Optionally it also keeps your own cellar: five more tools that record what you
 have, where it is, when to drink it and how you rated what you opened — so
 "what should I open with the lamb tonight" can be answered from your own rack.
 It is a separate file from the mirror, the only thing the server writes, and

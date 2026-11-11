@@ -26,6 +26,7 @@ test("the cellar tools round-trip through MCP", async () => {
       "systembolaget_cellar_add",
       "systembolaget_cellar_list",
       "systembolaget_cellar_remove",
+      "systembolaget_cellar_review",
       "systembolaget_cellar_update",
     ]);
     // A client that does not resolve $ref sends the field untyped, and a year then arrives as a string.
@@ -108,6 +109,79 @@ test("the cellar tools round-trip through MCP", async () => {
       text(await client.callTool({ name: "systembolaget_cellar_update", arguments: { wine_id: cid, purchased_on: "2026-04" } })),
       /\*\*Paid\*\*: €23\.50 \(2026-04\)/,
     );
+  } finally {
+    await client.close();
+    cellar.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("critics' reviews are recorded, shown with their warnings, corrected and removed through MCP", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cellar-reviews-"));
+  const cellar = new Cellar(join(dir, "cellar.db"), new Mirror(join(dir, "no-mirror.db")));
+  const server = new McpServer({ name: "test", version: "0" });
+  registerCellarTools(server, cellar);
+  const client = new Client({ name: "test", version: "0" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(a), client.connect(b)]);
+  const text = (r: Awaited<ReturnType<typeof client.callTool>>) => (r.content as { type: string; text: string }[])[0].text;
+  const review = (args: Record<string, unknown>) => client.callTool({ name: "systembolaget_cellar_review", arguments: args });
+
+  try {
+    const added = await client.callTool({
+      name: "systembolaget_cellar_add",
+      arguments: { producer: "Xavier Loriot", name: "Hypnotic Brut", vintage: null, quantity: 1 },
+    });
+    const id = (added.structuredContent as { wine: { id: number } }).wine.id;
+
+    const queued = await client.callTool({ name: "systembolaget_cellar_list", arguments: { needs_reviews: true } });
+    assert.match(text(queued), /Hypnotic Brut/);
+
+    // The two judgements a bare score hides are required, not defaulted.
+    const lazy = await review({ wine_id: id, critic: "Gault&Millau", score: 93 });
+    assert.equal(lazy.isError, true);
+    assert.match(text(lazy), /needs critic, release and seen/);
+
+    const first = await review({
+      wine_id: id,
+      critic: "Gault&Millau",
+      score: 93,
+      tasted_on: "2022",
+      release: "unknown",
+      seen: "at_source",
+      summary: "Generous and fruit-driven, with a long finish.",
+      url: "https://example.com/hypnotic",
+    });
+    assert.equal(first.isError, undefined);
+    const rid = (first.structuredContent as { reviews: { id: number }[] }).reviews[0].id;
+
+    await review({ wine_id: id, critic: "Vinous", award: "91-93", release: "other_release", release_note: "base 2019", drink_until: 2030, seen: "quoted" });
+
+    const shown = text(await client.callTool({ name: "systembolaget_cellar_list", arguments: { wine_id: id } }));
+    assert.match(shown, /\*\*Critics\*\* \(summaries are Claude's words, not the critic's\)/);
+    assert.match(shown, /Gault&Millau: 93\/100 \(2022\) — release not stated · https:\/\/example\.com\/hypnotic · review #\d+\n    Generous/);
+    assert.match(shown, /Vinous: 91-93 — another release \(base 2019\) · drink now–2030 · quoted second-hand, not checked at the source/);
+    assert.doesNotMatch(text(await client.callTool({ name: "systembolaget_cellar_list", arguments: { needs_reviews: true } })), /Hypnotic/);
+
+    const fixed = await review({ review_id: rid, score: 92 });
+    assert.match(text(fixed), /Corrected review/);
+    assert.match(text(fixed), /Gault&Millau: 92\/100/);
+    assert.equal((await review({ review_id: rid })).isError, true, "a correction needs something to correct");
+
+    const gone = await review({ review_id: rid, delete: true });
+    assert.match(text(gone), /Removed review/);
+    assert.doesNotMatch(text(gone), /Gault&Millau: 9/);
+
+    // Looked for and not found.
+    const other = await client.callTool({ name: "systembolaget_cellar_add", arguments: { name: "Obscure Brut", quantity: 1 } });
+    const oid = (other.structuredContent as { wine: { id: number } }).wine.id;
+    assert.equal((await review({ wine_id: oid, none_found: true, score: 90 })).isError, true);
+    assert.match(text(await review({ wine_id: oid, none_found: true })), /none found \(looked \d{4}-\d{2}-\d{2}\)/);
+    assert.match(text(await client.callTool({ name: "systembolaget_cellar_list", arguments: { wine_id: oid } })), /\*\*Critics\*\*: none found/);
+
+    assert.equal((await review({ critic: "X", score: 90, release: "unknown", seen: "quoted" })).isError, true);
+    assert.equal((await review({ wine_id: 999, critic: "X", score: 90, release: "unknown", seen: "quoted" })).isError, true);
+    assert.equal((await review({ wine_id: oid, critic: "X", score: 19, scale: 20, tasted_on: "12/2024", release: "unknown", seen: "quoted" })).isError, true);
   } finally {
     await client.close();
     cellar.close();

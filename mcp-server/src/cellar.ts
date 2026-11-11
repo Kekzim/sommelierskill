@@ -30,6 +30,12 @@ import { SQL_TIMEOUT_MS } from "./constants.js";
  * year, dosage) come from its label: a non-vintage cuvée changes with every
  * release, so the house's current sheet may describe a different wine from the
  * one on the rack.
+ *
+ * What critics have published is a fourth voice, in its own table. A review is
+ * kept as a score, a line of summary in other words and a link, never as the
+ * critic's text, and each one says two things a bare score hides: whether it
+ * is of the release on the rack, and whether it was read at the critic's own
+ * publication or quoted by someone selling the wine.
  */
 
 export const REMOVAL_REASONS = ["drunk", "gift", "sold", "broken", "other"] as const;
@@ -40,6 +46,62 @@ export type DrinkWindow = (typeof DRINK_WINDOWS)[number];
 
 export const CELLAR_SORTS = ["drink_until", "name", "vintage", "added", "rating"] as const;
 export type CellarSort = (typeof CELLAR_SORTS)[number];
+
+/** Whether a review is of the bottle in the cellar. Critics rarely say which release of a non-vintage wine they tasted. */
+export const REVIEW_RELEASES = ["this_release", "other_release", "unknown"] as const;
+export type ReviewRelease = (typeof REVIEW_RELEASES)[number];
+
+/** Read at the critic's own publication, or quoted by a retailer or the producer. Quotes disagree with each other. */
+export const REVIEW_SEEN = ["at_source", "quoted"] as const;
+export type ReviewSeen = (typeof REVIEW_SEEN)[number];
+
+export interface ReviewFields {
+  critic?: string;
+  score?: number | null;
+  scale?: number | null;
+  award?: string | null;
+  tasted_on?: string | null;
+  release?: ReviewRelease;
+  release_note?: string | null;
+  drink_from?: number | null;
+  drink_until?: number | null;
+  summary?: string | null;
+  url?: string | null;
+  seen?: ReviewSeen;
+}
+
+const REVIEW_EDITABLE: (keyof ReviewFields)[] = [
+  "critic",
+  "score",
+  "scale",
+  "award",
+  "tasted_on",
+  "release",
+  "release_note",
+  "drink_from",
+  "drink_until",
+  "summary",
+  "url",
+  "seen",
+];
+
+export interface ReviewRow {
+  id: number;
+  wine_id: number;
+  critic: string;
+  score: number | null;
+  scale: number | null;
+  award: string | null;
+  tasted_on: string | null;
+  release: ReviewRelease;
+  release_note: string | null;
+  drink_from: number | null;
+  drink_until: number | null;
+  summary: string | null;
+  url: string | null;
+  seen: ReviewSeen;
+  recorded_on: string;
+}
 
 /** Fields the user may set directly. `quantity` is not one: it moves by events. */
 export interface WineFields {
@@ -128,6 +190,7 @@ export interface WineRow {
   claude_profile: string | null;
   claude_sources: string | null;
   claude_profiled_on: string | null;
+  reviews_checked_on: string | null;
   added_at: string;
   updated_at: string;
 }
@@ -157,6 +220,7 @@ export interface ListedWine extends WineRow {
   last_note: string | null;
   /** null when the wine is not from Systembolaget or is no longer sold there. */
   systembolaget: CurrentListing | null;
+  reviews: ReviewRow[];
 }
 
 export interface ListFilter {
@@ -166,6 +230,7 @@ export interface ListFilter {
   drink_window?: DrinkWindow;
   min_rating?: number;
   needs_profile?: boolean;
+  needs_reviews?: boolean;
   include_empty?: boolean;
   sort?: CellarSort;
   limit: number;
@@ -218,6 +283,9 @@ const ADDED_COLUMNS: [name: string, decl: string][] = [
   // converting at entry needs a rate for a date that is often not known, so the
   // price is kept as paid. NULL means SEK, which is what every older price is.
   ["purchase_currency", "TEXT"],
+  // When critics' reviews were last looked for. Most grower Champagne has
+  // none, and without the date every session would search for them again.
+  ["reviews_checked_on", "TEXT"],
 ];
 
 const SCHEMA = `
@@ -267,7 +335,41 @@ CREATE TABLE IF NOT EXISTS event (
   recorded_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_event_wine ON event(wine_id);
+
+-- What critics have published about a wine. The critic's own text is not
+-- stored: it is theirs, and often behind a paywall.
+CREATE TABLE IF NOT EXISTS review (
+  id           INTEGER PRIMARY KEY,
+  wine_id      INTEGER NOT NULL REFERENCES wine(id) ON DELETE CASCADE,
+  critic       TEXT NOT NULL,  -- the publication, with the taster where known
+  score        REAL,
+  scale        REAL,           -- the top of the critic's scale: 100, 20, 5
+  award        TEXT,           -- 'Gold medal', or a score that is not one number: '17.5+', '93-95'
+  tasted_on    TEXT,           -- YYYY, YYYY-MM or YYYY-MM-DD: tasted, else published
+  release      TEXT NOT NULL CHECK (release IN ('this_release', 'other_release', 'unknown')),
+  release_note TEXT,           -- what the critic tasted: 'base 2019, disgorged 2023'
+  drink_from   INTEGER,        -- the critic's window, not the cellar's
+  drink_until  INTEGER,
+  summary      TEXT,           -- in other words than the critic's
+  url          TEXT,
+  seen         TEXT NOT NULL CHECK (seen IN ('at_source', 'quoted')),
+  recorded_on  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_review_wine ON review(wine_id);
 `;
+
+/** A review has to say something, and a score has to fit its scale. */
+function checkReview(r: Pick<ReviewRow, "score" | "scale" | "award" | "summary" | "drink_from" | "drink_until">): void {
+  if (r.score == null && !r.award && !r.summary) {
+    throw new Error("A review needs a score, an award or a summary.");
+  }
+  if (r.score != null && r.scale != null && r.score > r.scale) {
+    throw new Error(`A score of ${r.score} does not fit a scale of ${r.scale}. Give 'scale' as the top of the critic's scale, e.g. 20.`);
+  }
+  if (r.drink_from != null && r.drink_until != null && r.drink_from > r.drink_until) {
+    throw new Error(`drink_from (${r.drink_from}) is after drink_until (${r.drink_until}).`);
+  }
+}
 
 /** A profile without its sources is indistinguishable from an invented one. */
 function requireSources(f: WineFields): void {
@@ -942,6 +1044,10 @@ export class Cellar {
       // Nobody has described it: no Systembolaget note, no profile yet.
       where.push("sb_taste IS NULL AND claude_profile IS NULL");
     }
+    if (f.needs_reviews) {
+      // Nobody has looked yet. A wine looked up and found unreviewed is not in the queue.
+      where.push("reviews_checked_on IS NULL AND NOT EXISTS (SELECT 1 FROM review r WHERE r.wine_id = w.id)");
+    }
     if (f.min_rating !== undefined) {
       where.push("avg_rating >= ?");
       params.push(f.min_rating);
@@ -973,9 +1079,124 @@ export class Cellar {
     ) as { total: number };
     const rows = db
       .prepare(`${base} ORDER BY ${order[f.sort ?? "drink_until"]} LIMIT ? OFFSET ?`)
-      .all(...(params as never[]), f.limit, f.offset) as unknown as Omit<ListedWine, "systembolaget">[];
+      .all(...(params as never[]), f.limit, f.offset) as unknown as Omit<ListedWine, "systembolaget" | "reviews">[];
 
-    return { total, items: this.withListings(rows) };
+    const reviews = this.reviews(rows.map((r) => r.id));
+    return { total, items: this.withListings(rows).map((w) => ({ ...w, reviews: reviews.get(w.id) ?? [] })) };
+  }
+
+  /** Each wine's reviews, newest tasting first, undated ones last. */
+  reviews(wineIds: number[]): Map<number, ReviewRow[]> {
+    const out = new Map<number, ReviewRow[]>();
+    if (!wineIds.length) return out;
+    const rows = this.handle()
+      .prepare(
+        `SELECT * FROM review WHERE wine_id IN (${wineIds.map(() => "?").join(", ")})
+         ORDER BY wine_id, tasted_on IS NULL, tasted_on DESC, id`,
+      )
+      .all(...wineIds) as unknown as ReviewRow[];
+    for (const r of rows) out.set(r.wine_id, [...(out.get(r.wine_id) ?? []), r]);
+    return out;
+  }
+
+  /**
+   * Record a critic's review of a wine. The same critic and tasting date for
+   * the same wine replaces what was recorded, so running a lookup twice does
+   * not list the review twice.
+   */
+  addReview(
+    wineId: number,
+    input: ReviewFields & { critic: string; release: ReviewRelease; seen: ReviewSeen },
+  ): { review: ReviewRow; replaced: boolean } {
+    return this.tx((db) => {
+      const wine = this.wine(db, wineId);
+      if (!wine) throw new Error(`No wine #${wineId} in the cellar. List the cellar to find its id.`);
+      const row = {
+        critic: input.critic,
+        score: input.score ?? null,
+        scale: input.score != null ? (input.scale ?? 100) : null,
+        award: input.award ?? null,
+        tasted_on: input.tasted_on ?? null,
+        release: input.release,
+        release_note: input.release_note ?? null,
+        drink_from: input.drink_from ?? null,
+        drink_until: input.drink_until ?? null,
+        summary: input.summary ?? null,
+        url: input.url ?? null,
+        seen: input.seen,
+      };
+      checkReview(row);
+      const same = db
+        .prepare(`SELECT id FROM review WHERE wine_id = ? AND critic = ? COLLATE NOCASE AND tasted_on IS ?`)
+        .get(wineId, row.critic, row.tasted_on) as { id: number } | undefined;
+      const keys = Object.keys(row) as (keyof typeof row)[];
+      const values = keys.map((k) => row[k]) as never[];
+      let id: number;
+      if (same) {
+        id = same.id;
+        db.prepare(`UPDATE review SET ${keys.map((k) => `${k} = ?`).join(", ")}, recorded_on = ? WHERE id = ?`).run(
+          ...values,
+          today(),
+          id,
+        );
+      } else {
+        const done = db
+          .prepare(
+            `INSERT INTO review (wine_id, ${keys.join(", ")}, recorded_on)
+             VALUES (?, ${keys.map(() => "?").join(", ")}, ?)`,
+          )
+          .run(wineId, ...values, today());
+        id = Number(done.lastInsertRowid);
+      }
+      db.prepare(`UPDATE wine SET reviews_checked_on = ? WHERE id = ?`).run(today(), wineId);
+      return { review: this.reviewRow(db, id)!, replaced: !!same };
+    });
+  }
+
+  /** Correct a recorded review. Omitted fields are kept; null clears one. */
+  updateReview(id: number, patch: ReviewFields): ReviewRow {
+    return this.tx((db) => {
+      const before = this.reviewRow(db, id);
+      if (!before) throw new Error(`No review #${id}. List the wine to see its reviews and their ids.`);
+      const keys = REVIEW_EDITABLE.filter((k) => patch[k] !== undefined);
+      for (const k of ["critic", "release", "seen"] as const) {
+        if (keys.includes(k) && !patch[k]) throw new Error(`A review's ${k} cannot be cleared.`);
+      }
+      const after = { ...before, ...Object.fromEntries(keys.map((k) => [k, patch[k]])) } as ReviewRow;
+      if (after.score == null) after.scale = null;
+      else if (after.scale == null) after.scale = 100;
+      checkReview(after);
+      const cols = [...new Set([...keys, "scale" as const])];
+      db.prepare(`UPDATE review SET ${cols.map((k) => `${k} = ?`).join(", ")}, recorded_on = ? WHERE id = ?`).run(
+        ...(cols.map((k) => after[k]) as never[]),
+        today(),
+        id,
+      );
+      return this.reviewRow(db, id)!;
+    });
+  }
+
+  /** Remove a review recorded by mistake, or against the wrong wine. */
+  removeReview(id: number): ReviewRow {
+    return this.tx((db) => {
+      const before = this.reviewRow(db, id);
+      if (!before) throw new Error(`No review #${id}. List the wine to see its reviews and their ids.`);
+      db.prepare(`DELETE FROM review WHERE id = ?`).run(id);
+      return before;
+    });
+  }
+
+  /** Reviews were looked for and none found: dated, so the wine leaves the queue. */
+  markReviewsChecked(wineId: number): WineRow {
+    return this.tx((db) => {
+      if (!this.wine(db, wineId)) throw new Error(`No wine #${wineId} in the cellar. List the cellar to find its id.`);
+      db.prepare(`UPDATE wine SET reviews_checked_on = ? WHERE id = ?`).run(today(), wineId);
+      return this.wine(db, wineId)!;
+    });
+  }
+
+  private reviewRow(db: DatabaseSync, id: number): ReviewRow | undefined {
+    return db.prepare(`SELECT * FROM review WHERE id = ?`).get(id) as ReviewRow | undefined;
   }
 
   history(id: number): EventRow[] {
@@ -989,7 +1210,7 @@ export class Cellar {
    * the cellar must stay usable when the mirror is missing or mid-publish, so a
    * failed lookup leaves the listing out rather than failing the call.
    */
-  private withListings(rows: Omit<ListedWine, "systembolaget">[]): ListedWine[] {
+  private withListings(rows: Omit<ListedWine, "systembolaget" | "reviews">[]): Omit<ListedWine, "reviews">[] {
     const ids = [...new Set(rows.map((r) => r.product_id).filter((x): x is string => !!x))];
     const current = new Map<string, { vintage: number | null; price: number | null; availability: string | null }>();
     if (ids.length) {

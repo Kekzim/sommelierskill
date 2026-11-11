@@ -2,7 +2,7 @@
 
 An MCP server over the local `bolagetdb` mirror of Systembolaget's assortment.
 Nine read-only tools plus one live shelf-stock check, served over streamable
-HTTP — and, optionally, four more that keep your own wine cellar.
+HTTP — and, optionally, five more that keep your own wine cellar.
 
 The point is the same as the rest of this repo: Systembolaget's own API is a
 product search, not a query engine — no aggregation, no boolean logic, no
@@ -48,7 +48,7 @@ repo README.
 | `systembolaget_data_freshness` | Last sync, coverage, mirrored stores |
 | `systembolaget_query` | Read-only SQL escape hatch for aggregation and odd joins |
 
-With `CELLAR_DB_PATH` set, four more:
+With `CELLAR_DB_PATH` set, five more:
 
 | Tool | For |
 |---|---|
@@ -56,6 +56,7 @@ With `CELLAR_DB_PATH` set, four more:
 | `systembolaget_cellar_add` | Bottles in — by Systembolaget product id or shelf-label number, or by name for anything bought elsewhere |
 | `systembolaget_cellar_update` | Move, re-date, annotate, correct a count, or fill in a profile of a wine nobody describes |
 | `systembolaget_cellar_remove` | Bottles out — drunk, given away, sold or broken — with your rating and a note |
+| `systembolaget_cellar_review` | What a critic published about a wine you own: score, drinking window, a line of summary and a link |
 
 ### What to enter for a wine Systembolaget does not sell
 
@@ -200,6 +201,20 @@ house's current technical sheet can describe a different wine from the one on
 the rack. A cellar written by the first release gains these columns the first
 time it is opened.
 
+**Critics' reviews are a fourth voice, in their own table.** A review is a
+score on the critic's own scale (or a medal), an optional drinking window, one
+or two sentences of summary and a link. The critic's text is never stored: it
+is theirs, and often paywalled. Two fields are required rather than defaulted,
+because a bare score hides both. `release` says whether the review is of the
+bottle on the rack; for a non-vintage wine that is `unknown` unless the review
+names the base year or disgorgement, which guides rarely do. `seen` says
+whether the score was read on the critic's own page or quoted by a retailer;
+quotes of the same review were found to disagree. The same critic and tasting
+date replaces the earlier record, so looking a wine up twice does not list a
+review twice. A wine looked up with nothing found is dated
+(`reviews_checked_on`), so `needs_reviews` only lists wines nobody has looked
+up.
+
 **Auth is on even inside the network.** The server is reachable only over the
 VPN, but a private network is not an authorisation boundary. Set
 `MCP_AUTH_TOKEN`; the check is constant-time.
@@ -320,5 +335,5 @@ curl -s -H 'Authorization: Bearer YOUR_MCP_AUTH_TOKEN' \
      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-Nine tools come back, thirteen with the cellar enabled. A 401 means the token does not match; a connection refusal
+Nine tools come back, fourteen with the cellar enabled. A 401 means the token does not match; a connection refusal
 usually means `BIND_ADDR` is still `127.0.0.1` on the server.
