@@ -53,16 +53,24 @@ export function toolResult<T>(
   let output: Page<T> = page;
   let text = format === ResponseFormat.JSON ? JSON.stringify(output, null, 2) : markdown(output);
 
-  if (text.length > CHARACTER_LIMIT && output.items.length > 1) {
-    const keep = Math.max(1, Math.floor(output.items.length / 2));
+  // Halved until it fits: one halving of a long page of long records can still
+  // be several times the limit. A single record is sent whole however long.
+  while (text.length > CHARACTER_LIMIT && output.items.length > 1) {
+    const keep = Math.floor(output.items.length / 2);
+    // The dropped records are still to come, so the paging fields have to move
+    // back with them: left as they were, the next call would skip them, or on a
+    // last page would never be made.
+    const next = page.offset + keep;
     output = {
       ...output,
       items: output.items.slice(0, keep),
       count: keep,
+      has_more: true,
+      next_offset: next,
       truncated: true,
       truncation_message:
         `Response truncated from ${page.items.length} to ${keep} items. ` +
-        `Use 'offset' to page through the rest, or narrow the query with more filters.`,
+        `Continue with offset=${next}, or narrow the query with more filters.`,
     };
     text = format === ResponseFormat.JSON ? JSON.stringify(output, null, 2) : markdown(output);
   }
